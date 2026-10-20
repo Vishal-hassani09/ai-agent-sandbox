@@ -1,74 +1,59 @@
 import argparse
 import os
-from pathlib import Path
-import shutil
 import sys
-from app.cli.ui import (
-    console,
-    create_prompt_session,
-    get_input_prompt_header,
-    get_status_spinner,
-    print_assistant_response,
-    print_banner,
-    print_exit_banner,
-    print_prompt_box_footer,
-    print_user_prompt,
-)
+from pathlib import Path
+
+from app.cli.ui import AgentTerminalUI
 from app.config import settings
 from app.core.agent import CodingAgent
-from app.tools import get_default_registry
-from app.utils.prompt_expander import expand_file_mentions
+from app.tools import ToolRegistry
+from app.tools.file_search import GlobTool
+from app.tools.file_system import ReadFileTool, WriteFileTool
+from app.tools.terminal import ShellTool
 
 
-def main() -> None:
-    parser = argparse.ArgumentParser(description="Autonomous Coding Agent")
+def parse_args():
+    parser = argparse.ArgumentParser(
+        description="Autonomous Coding Agent CLI",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
     parser.add_argument(
         "-w",
         "--workspace",
         type=str,
-        default=settings.WORKSPACE_DIR,
-        help="Target workspace directory",
+        default=".",
+        help="Path to the target project/workspace directory",
     )
-    args = parser.parse_args()
+    return parser.parse_args()
 
-    # Workspace directory sync
-    workspace_dir = str(Path(args.workspace).resolve())
-    settings.WORKSPACE_DIR = workspace_dir
-    os.chdir(workspace_dir)
 
-    registry = get_default_registry()
-    agent = CodingAgent(registry=registry)
+def main():
+    args = parse_args()
+    workspace_path = Path(args.workspace).resolve()
 
-    print_banner(workspace_dir)
-    session = create_prompt_session(workspace_dir)
-    history = []
+    if not workspace_path.exists():
+        print(f"Error: Target workspace directory does not exist: {workspace_path}", file=sys.stderr)
+        sys.exit(1)
 
-    while True:
-        try:
-            user_prompt = session.prompt(get_input_prompt_header).strip()
-            print_prompt_box_footer()
+    # 1. Update config settings to target workspace
+    settings.WORKSPACE_DIR = str(workspace_path)
 
-            if not user_prompt:
-                continue
+    # 2. Change working directory so relative file globs and terminal tools stay bounded to workspace
+    os.chdir(workspace_path)
 
-            if user_prompt.lower() in ["quit", "exit", "q"]:
-                print_exit_banner()
-                break
+    # 3. Setup tool registry scoped to workspace
+    registry = ToolRegistry()
+    registry.register(ReadFileTool())
+    registry.register(WriteFileTool())
+    registry.register(ShellTool())
+    registry.register(GlobTool())
 
-            enriched_prompt = expand_file_mentions(user_prompt, workspace_dir)
-            history.append({"role": "user", "content": enriched_prompt})
+    # 4. Instantiate core agent
+    agent = CodingAgent(registry)
 
-            with get_status_spinner(
-                "[bold cyan]Thinking & executing...[/bold cyan]"
-            ):
-                response = agent.run(history)
-
-            print_assistant_response(response)
-            history.append({"role": "assistant", "content": response})
-
-        except (KeyboardInterrupt, EOFError):
-            print_exit_banner()
-            sys.exit(0)
+    # 5. Launch UI
+    ui = AgentTerminalUI(agent=agent, workspace_path=str(workspace_path))
+    ui.run()
 
 
 if __name__ == "__main__":
