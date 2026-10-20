@@ -46,7 +46,7 @@ class WorkspaceFileCompleter(Completer):
                 for file in files:
                     full_p = Path(root) / file
                     rel_p = str(full_p.relative_to(self.workspace_path)).replace("\\", "/")
-                    
+
                     if not query or query in rel_p.lower():
                         yield Completion(
                             text=rel_p,
@@ -58,7 +58,7 @@ class WorkspaceFileCompleter(Completer):
 
 
 class AgentTerminalUI:
-    """Full-screen terminal interface with floating @file completions menu and clean layout."""
+    """Full-screen terminal interface with dynamic reflow, auto-scroll to latest response, and clear command."""
 
     def __init__(self, agent: Any, workspace_path: str):
         self.agent = agent
@@ -95,7 +95,7 @@ class AgentTerminalUI:
         )
         self.input_frame = Frame(
             self.input_window,
-            title="Input (Enter: send | @: attach file | PgUp/PgDn: scroll | Ctrl+C: exit)",
+            title="Input (Enter: send | 'clear': reset history | @: file | PgUp/PgDn: scroll | Ctrl+C: exit)",
         )
 
         # Base layout: history top, input bottom
@@ -104,7 +104,7 @@ class AgentTerminalUI:
             self.input_frame,
         ])
 
-        # FloatContainer: displays the floating popup completions menu right above the cursor
+        # Floating popup completions menu right above the cursor
         self.root_container = FloatContainer(
             content=main_hsplit,
             floats=[
@@ -174,19 +174,41 @@ class AgentTerminalUI:
         visible_lines = lines[self._scroll_offset :]
         return ANSI("".join(visible_lines))
 
-    def _scroll_to_bottom(self):
+    def _scroll_to_start_of_latest(self):
+        """Scrolls the viewport directly to the beginning line of the most recent message block."""
+        if len(self.message_blocks) <= 1:
+            self._scroll_offset = 0
+            return
+
         width = self._get_console_width()
         console = Console(record=True, force_terminal=True, width=width)
+
+        # Render all blocks except the last one to calculate the starting line index of the last block
         with console.capture() as capture:
-            for kind, content in self.message_blocks:
-                if kind == "agent":
+            for kind, content in self.message_blocks[:-1]:
+                if kind == "banner":
+                    banner_text = Text()
+                    banner_text.append("● Autonomous Coding Agent\n", style="bold green")
+                    banner_text.append("Workspace: ", style="dim")
+                    banner_text.append(f"{self.workspace_path}\n", style="cyan")
+                    console.print(banner_text)
+                    console.print(Rule(style="dim green"))
+                elif kind == "user":
+                    user_text = Text()
+                    user_text.append("› You\n", style="bold cyan")
+                    user_text.append(f"{content}\n", style="white")
+                    console.print(user_text)
+                elif kind == "agent":
+                    agent_header = Text("● Agent\n", style="bold green")
+                    console.print(agent_header)
                     console.print(Markdown(content))
-                else:
-                    console.print(content)
-        lines = capture.get().splitlines()
-        _, term_rows = shutil.get_terminal_size(fallback=(80, 24))
-        viewport_height = max(5, term_rows - 5)
-        self._scroll_offset = max(0, len(lines) - viewport_height)
+                    console.print(Rule(style="dim"))
+                elif kind == "error":
+                    console.print(Text(f"Error: {content}\n", style="bold red"))
+
+        prior_lines = capture.get().splitlines()
+        # Set scroll offset exactly to the start of the latest message
+        self._scroll_offset = max(0, len(prior_lines))
 
     def _register_bindings(self):
         @self.kb.add("c-c")
@@ -215,7 +237,6 @@ class AgentTerminalUI:
 
         @self.kb.add("enter")
         def _submit(event):
-            # If the completions menu is open, Enter chooses the completion
             if self.input_buffer.complete_state:
                 self.input_buffer.complete_state = None
                 return
@@ -223,8 +244,20 @@ class AgentTerminalUI:
             text = self.input_buffer.text.strip()
             if not text:
                 return
+
             if text.lower() in ("exit", "quit"):
                 event.app.exit()
+                return
+
+            # Clear command: resets visual blocks and API context memory
+            if text.lower() in ("clear", "/clear", "cls"):
+                self.input_buffer.reset()
+                self.history = []
+                self.message_blocks = [
+                    ("banner", f"Autonomous Coding Agent\nWorkspace: {self.workspace_path}")
+                ]
+                self._scroll_offset = 0
+                event.app.invalidate()
                 return
 
             self.input_buffer.reset()
@@ -232,7 +265,7 @@ class AgentTerminalUI:
             expanded_text = self._expand_file_mentions(text)
 
             self.message_blocks.append(("user", text))
-            self._scroll_to_bottom()
+            self._scroll_to_start_of_latest()
             event.app.invalidate()
 
             asyncio.create_task(self._process_turn(expanded_text))
@@ -256,7 +289,7 @@ class AgentTerminalUI:
 
     async def _process_turn(self, user_prompt: str):
         self.message_blocks.append(("thinking", ""))
-        self._scroll_to_bottom()
+        self._scroll_to_start_of_latest()
         self.app.invalidate()
 
         self.history.append({"role": "user", "content": user_prompt})
@@ -279,7 +312,8 @@ class AgentTerminalUI:
                 self.message_blocks.pop()
             self.message_blocks.append(("error", str(e)))
 
-        self._scroll_to_bottom()
+        # Automatically align viewport to the top of the agent's new response
+        self._scroll_to_start_of_latest()
         self.app.invalidate()
 
     def run(self):
