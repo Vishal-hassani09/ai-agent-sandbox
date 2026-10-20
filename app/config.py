@@ -1,7 +1,11 @@
 from pydantic_settings import BaseSettings, SettingsConfigDict
 import json
 from pathlib import Path
+import os
 
+
+PROJECT_ROOT = Path(__file__).resolve().parent.parent
+ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
 class Settings(BaseSettings):
     """
@@ -14,11 +18,11 @@ class Settings(BaseSettings):
     # Optional defaults with strong types
     MODEL_NAME: str = "openai/gpt-oss-120b"
     MAX_ITERATIONS: int = 8
-    WORKSPACE_DIR: str = "./workspace"
+    WORKSPACE_DIR: str = os.getcwd() or "./workspace"
 
     # Configuration to instruct Pydantic to read from a local .env file
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file= ENV_FILE_PATH,
         env_file_encoding="utf-8",
         extra="ignore"  # Ignore extra unrelated env variables safely
     )
