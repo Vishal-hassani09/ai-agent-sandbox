@@ -43,6 +43,10 @@ jobs:
           pylint --rcfile=../.pylintrc app tests
 
       - name: Run Pytest Integration & Contract Tests
+        env:
+          GROQ_API_KEY: "gsk_ci_mock_test_key_for_pipeline"
+          WORKSPACE_DIR: "./workspace"
+          PYTHONPATH: .
         run: |
           pytest -v tests/ --cov=app --cov-report=term-missing
 
@@ -77,7 +81,7 @@ jobs:
 
       - name: Run Vitest Suite
         run: |
-          npm test
+          npx vitest run --pool=threads
 
       - name: Verify Build
         run: |
