@@ -6,3 +6,7 @@ rich
 prompt_toolkit
 fastapi
 uvicorn
+pytest
+pytest-mock
+pytest-cov
+httpx

@@ -13,7 +13,11 @@ dependencies = [
     "rich",
     "prompt_toolkit",
     "fastapi",
-    "uvicorn"
+    "uvicorn",
+    "pytest",
+    "pytest-mock",
+    "pytest-cov",
+    "httpx"
 ]
 
 [project.scripts]

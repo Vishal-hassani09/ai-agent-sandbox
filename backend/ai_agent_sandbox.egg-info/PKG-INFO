@@ -9,3 +9,7 @@ Requires-Dist: rich
 Requires-Dist: prompt_toolkit
 Requires-Dist: fastapi
 Requires-Dist: uvicorn
+Requires-Dist: pytest
+Requires-Dist: pytest-mock
+Requires-Dist: pytest-cov
+Requires-Dist: httpx
