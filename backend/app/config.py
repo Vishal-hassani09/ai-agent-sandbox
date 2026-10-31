@@ -4,7 +4,7 @@ from pathlib import Path
 import os
 
 
-PROJECT_ROOT = Path(__file__).resolve().parent.parent
+PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
 class Settings(BaseSettings):
