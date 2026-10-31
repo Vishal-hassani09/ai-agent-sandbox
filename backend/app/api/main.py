@@ -48,10 +48,13 @@ async def health_check():
     """Health check endpoint for Docker container checks and uptime monitoring."""
     return HealthResponse()
 
+
 @app.get("/")
 async def root():
-    """ Root endpoint to inform user about docs """
-    return {"message": "Autonomous Coding Agent API is online. Visit /docs for API documentation."}
+    """Root endpoint to inform user about docs."""
+    return {
+        "message": "Autonomous Coding Agent API is online. Visit /docs for API documentation."
+    }
 
 
 @app.post("/api/chat", response_model=ChatResponse, tags=["Agent"])
@@ -62,11 +65,15 @@ async def chat(payload: ChatRequest):
 
     # Anchor to PROJECT_ROOT and resolve
     raw_path = Path(payload.workspace)
-    target_path = (raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path).resolve()
+    base_target = raw_path if raw_path.is_absolute() else (PROJECT_ROOT / raw_path)
+    target_path = base_target.resolve()
 
     # Prevent directory escape
     if not str(target_path).startswith(str(PROJECT_ROOT)):
-        raise HTTPException(status_code=400, detail="Access outside project directory is forbidden.")
+        raise HTTPException(
+            status_code=400,
+            detail="Access outside project directory is forbidden.",
+        )
 
     # Ensure the user's selected folder exists, then update process dir
     target_path.mkdir(parents=True, exist_ok=True)
@@ -76,7 +83,7 @@ async def chat(payload: ChatRequest):
     try:
         agent = get_agent()
         history_dicts = [msg.model_dump() for msg in payload.messages]
-        
+
         # Run agent
         result = agent.run(history_dicts)
         return ChatResponse(response=result or "")
@@ -84,11 +91,24 @@ async def chat(payload: ChatRequest):
         raise HTTPException(status_code=500, detail=str(e)) from e
 
 
+@app.get("/api/workspaces", tags=["Agent"])
+async def list_workspaces():
+    """List available candidate workspace folders under PROJECT_ROOT."""
+    ignored = {".git", ".venv", "backend", "frontend", "__pycache__", "node_modules"}
+    workspaces = [
+        p.name
+        for p in PROJECT_ROOT.iterdir()
+        if p.is_dir() and p.name not in ignored and not p.name.startswith(".")
+    ]
+    return {"workspaces": sorted(workspaces)}
+
+
 @app.get("/api/workspace/files", tags=["Agent"])
 async def list_workspace_files(workspace: str = "workspace"):
     """Returns a list of relative file paths in the selected workspace."""
     raw_path = Path(workspace)
-    target_path = (raw_path if raw_path.is_absolute() else PROJECT_ROOT / raw_path).resolve()
+    base_target = raw_path if raw_path.is_absolute() else (PROJECT_ROOT / raw_path)
+    target_path = base_target.resolve()
 
     if not target_path.exists() or not str(target_path).startswith(str(PROJECT_ROOT)):
         return {"files": []}
