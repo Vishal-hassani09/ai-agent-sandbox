@@ -44,7 +44,7 @@ jobs:
 
       - name: Run Pytest Integration & Contract Tests
         env:
-          GROQ_API_KEY: "gsk_ci_mock_test_key_for_pipeline"
+          GROQ_API_KEY: "gsk_dummy_mock_key_for_testing"
           WORKSPACE_DIR: "./workspace"
           PYTHONPATH: .
         run: |
