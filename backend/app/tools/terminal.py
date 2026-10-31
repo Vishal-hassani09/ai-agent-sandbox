@@ -33,7 +33,7 @@ class ShellTool(BaseTool):
         try:
             workspace = os.path.abspath(settings.WORKSPACE_DIR)
             os.makedirs(workspace, exist_ok=True)
-            process = subprocess.run(command, shell=True, capture_output=True, timeout=60, text=True, cwd=workspace)
+            process = subprocess.run(command, shell=True, capture_output=True, timeout=60, text=True, cwd=workspace, check=False)
             try:
                 return f"Returncode: {process.returncode}, Output: {process.stdout.strip()}, Error: {process.stderr.strip()}"
             except Exception as err:

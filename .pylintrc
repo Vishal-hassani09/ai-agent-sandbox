@@ -1,0 +1,33 @@
+[MAIN]
+py-version = 3.12
+ignore = .venv,node_modules,dist,build
+jobs = 0
+
+[MESSAGES CONTROL]
+disable =
+    missing-module-docstring,
+    missing-class-docstring,
+    missing-function-docstring,
+    line-too-long,
+    trailing-whitespace,
+    missing-final-newline,
+    trailing-newlines,
+    too-few-public-methods,
+    too-many-instance-attributes,
+    duplicate-code,
+    broad-exception-caught,
+    arguments-differ,
+    no-else-return,
+    invalid-name
+
+[FORMAT]
+max-line-length = 120
+
+[DESIGN]
+max-args = 8
+max-attributes = 15
+
+[REPORTS]
+output-format = text
+score = yes
+fail-under = 9.0
