@@ -1,4 +1,4 @@
-import React, { useState, useRef, useEffect } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
@@ -245,7 +245,7 @@ export default function App() {
                         tr: ({ children }) => <tr style={styles.tr}>{children}</tr>,
                         th: ({ children }) => <th style={styles.th}>{children}</th>,
                         td: ({ children }) => <td style={styles.td}>{children}</td>,
-                        code({ inline, children, ...props }) {
+                        code({ children, ...props }) {
                           const content = String(children).replace(/\n$/, '');
                           const isMultiLine = content.includes('\n');
                           return !isMultiLine ? (

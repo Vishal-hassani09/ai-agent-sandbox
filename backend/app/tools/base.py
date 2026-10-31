@@ -15,7 +15,6 @@ class BaseTool(ABC):
         """
         Returns the OpenAI/Groq-compatible JSON schema definition for the tool.
         """
-        pass
 
     @abstractmethod
     def execute(self, **kwargs) -> str:
@@ -23,4 +22,3 @@ class BaseTool(ABC):
         Executes the business logic of the tool with the provided arguments.
         Must return a string representation of the output or error.
         """
-        pass

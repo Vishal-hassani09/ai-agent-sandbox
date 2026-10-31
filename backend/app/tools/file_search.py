@@ -1,6 +1,5 @@
-import os
 from pathlib import Path
-from typing import Dict, Any, List
+from typing import Dict, Any
 from app.config import settings
 from app.tools.base import BaseTool
 
@@ -34,7 +33,7 @@ class GlobTool(BaseTool):
             root = Path(settings.WORKSPACE_DIR).resolve()
 
             if not root.exists() :
-                return f"Workspace directory does not exist."
+                return "Workspace directory does not exist."
 
             for p in root.glob(pattern):
                 if not p.is_file():

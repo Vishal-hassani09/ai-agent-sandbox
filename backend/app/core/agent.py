@@ -1,6 +1,6 @@
 import json
 import os
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any
 from groq import Groq
 from app.config import settings
 from app.tools import ToolRegistry
@@ -22,7 +22,7 @@ class CodingAgent():
                 memory_content = f.read()
 
             return str(memory_content)
-        except(PermissionError, OSError, Exception) as err:
+        except(PermissionError, OSError, Exception):
             return ""
         
 
