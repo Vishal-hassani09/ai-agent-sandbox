@@ -11,7 +11,9 @@ dependencies = [
     "pydantic",
     "pydantic-settings",
     "rich",
-    "prompt_toolkit"
+    "prompt_toolkit",
+    "fastapi",
+    "uvicorn"
 ]
 
 [project.scripts]
