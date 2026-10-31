@@ -54,7 +54,7 @@ jobs:
   # Frontend Quality Gate: Linting & Vitest Component Tests
   # =========================================================================
   frontend:
-    name: Frontend (Node 20)
+    name: Frontend
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -64,14 +64,14 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js
+      - name: Set up Node.js 20
         uses: actions/setup-node@v4
         with:
           node-version: 20
 
       - name: Install Dependencies
         run: |
-          npm install --include=optional
+          npm install
 
       - name: Run ESLint
         run: |
@@ -79,7 +79,7 @@ jobs:
 
       - name: Run Vitest Suite
         run: |
-          npx vitest run
+          npm test
 
       - name: Verify Build
         run: |
