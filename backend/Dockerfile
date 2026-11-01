@@ -15,12 +15,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 # Copy packaging configuration first
 COPY pyproject.toml .
 
+# Copy application source code
+COPY . .
+
 # Upgrade pip and install package dependencies directly from pyproject.toml
 RUN pip install --no-cache-dir --upgrade pip && \
     pip install --no-cache-dir .
-
-# Copy application source code
-COPY . .
 
 # Setup non-root execution user and isolated workspace directory
 RUN useradd -m -u 1001 appuser && \
