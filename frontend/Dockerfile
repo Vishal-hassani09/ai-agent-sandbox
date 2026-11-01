@@ -1,4 +1,4 @@
-# Stage 1: Build the React/Vite distribution
+# Stage 1: Build React static artifacts
 FROM node:24-alpine AS builder
 
 WORKDIR /app
@@ -8,13 +8,14 @@ RUN npm install
 
 COPY . .
 
-ARG VITE_API_URL=""
+# Accept build argument for the backend URL
+ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 
 RUN npm run build
 
-# Stage 2: Serve using Nginx
-FROM nginx:alpine AS runner
+# Stage 2: Serve via Nginx
+FROM nginx:alpine
 
 COPY --from=builder /app/dist /usr/share/nginx/html
 COPY nginx.conf /etc/nginx/conf.d/default.conf
