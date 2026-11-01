@@ -25,9 +25,6 @@ services:
     dockerContext: frontend
     plan: free
     region: frankfurt
-    dockerBuildArgs:
-      - key: VITE_API_URL
-        value: https://ai-agent-sandbox-backend.onrender.com
     envVars:
       - key: VITE_API_URL
         fromService:
