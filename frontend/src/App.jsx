@@ -3,7 +3,7 @@ import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
 const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'https://ai-agent-sandbox-backend.onrender.com';
+  import.meta.env.VITE_API_URL || 'https://ai-agent-sandbox-backend-dgcj.onrender.com';
 
 const INITIAL_MESSAGE = {
   role: 'assistant',
