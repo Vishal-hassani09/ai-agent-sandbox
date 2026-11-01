@@ -13,3 +13,4 @@ Requires-Dist: pytest
 Requires-Dist: pytest-mock
 Requires-Dist: pytest-cov
 Requires-Dist: httpx
+Requires-Dist: slowapi>=0.1.9
