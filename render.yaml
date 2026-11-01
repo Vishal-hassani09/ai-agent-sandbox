@@ -1,0 +1,29 @@
+services:
+  # Backend API Service (FastAPI)
+  - type: web
+    name: ai-agent-sandbox-backend
+    runtime: docker
+    dockerfilePath: backend/Dockerfile
+    dockerContext: backend
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: GROQ_API_KEY
+        sync: false
+      - key: WORKSPACE_DIR
+        value: /app/workspace
+
+  # Frontend Application (React / Nginx)
+  - type: web
+    name: ai-agent-sandbox-frontend
+    runtime: docker
+    dockerfilePath: frontend/Dockerfile
+    dockerContext: frontend
+    plan: free
+    region: frankfurt
+    envVars:
+      - key: VITE_API_URL
+        fromService:
+          type: web
+          name: ai-agent-sandbox-backend
+          property: host

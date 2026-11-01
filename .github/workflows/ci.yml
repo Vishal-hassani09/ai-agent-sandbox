@@ -64,7 +64,7 @@ jobs:
       - name: Checkout Source Code
         uses: actions/checkout@v4
 
-      - name: Set up Node.js 20
+      - name: Set up Node.js 24
         uses: actions/setup-node@v4
         with:
           node-version: 24
@@ -79,8 +79,26 @@ jobs:
 
       - name: Run Vitest Suite
         run: |
-          npm test
+          npm test -- --run
 
       - name: Verify Build
         run: |
           npm run build
+
+  # =========================================================================
+  # Container Quality Gate: Ensure Docker Compose Stack Builds Cleanly
+  # =========================================================================
+  docker-build:
+    name: Docker Stack Build Check
+    needs: [backend, frontend]
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout Source Code
+        uses: actions/checkout@v4
+
+      - name: Validate Docker Compose Configuration
+        run: docker compose config
+
+      - name: Build Docker Stack
+        run: docker compose build
