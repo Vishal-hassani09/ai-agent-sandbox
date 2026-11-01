@@ -1,5 +1,7 @@
 services:
+  # =========================================================================
   # Backend API Service (FastAPI)
+  # =========================================================================
   - type: web
     name: ai-agent-sandbox-backend
     runtime: docker
@@ -13,7 +15,9 @@ services:
       - key: WORKSPACE_DIR
         value: /app/workspace
 
+  # =========================================================================
   # Frontend Application (React / Nginx)
+  # =========================================================================
   - type: web
     name: ai-agent-sandbox-frontend
     runtime: docker
@@ -21,6 +25,9 @@ services:
     dockerContext: frontend
     plan: free
     region: frankfurt
+    dockerBuildArgs:
+      - key: VITE_API_URL
+        value: https://ai-agent-sandbox-backend.onrender.com
     envVars:
       - key: VITE_API_URL
         fromService:
