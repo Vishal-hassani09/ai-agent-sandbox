@@ -2,6 +2,9 @@ import { useState, useRef, useEffect } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 
+const API_BASE_URL =
+  import.meta.env.VITE_API_URL || 'https://ai-agent-sandbox-backend.onrender.com';
+
 const INITIAL_MESSAGE = {
   role: 'assistant',
   content: 'Hello! Type `@` to reference files, or ask me to inspect, run, and modify code.',
@@ -13,6 +16,17 @@ export default function App() {
   const [messages, setMessages] = useState([INITIAL_MESSAGE]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+
+  // Responsive state hook
+  const [isMobile, setIsMobile] = useState(
+    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  );
+
+  useEffect(() => {
+    const handleResize = () => setIsMobile(window.innerWidth < 768);
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, []);
 
   // File picker state
   const [files, setFiles] = useState([]);
@@ -29,9 +43,9 @@ export default function App() {
     }
   }, [loading]);
 
-  // Fetch workspaces on boot
+  // Fetch workspaces on boot using the direct backend URL
   useEffect(() => {
-    fetch('/api/workspaces')
+    fetch(`${API_BASE_URL}/api/workspaces`)
       .then((res) => (res.ok ? res.json() : { workspaces: ['workspace'] }))
       .then((data) => {
         if (data.workspaces?.length > 0) {
@@ -39,13 +53,13 @@ export default function App() {
           setWorkspace(data.workspaces[0]);
         }
       })
-      .catch(() => { });
+      .catch(() => {});
   }, []);
 
   // Refresh workspace files whenever workspace changes
   useEffect(() => {
     if (!workspace) return;
-    fetch(`/api/workspace/files?workspace=${encodeURIComponent(workspace)}`)
+    fetch(`${API_BASE_URL}/api/workspace/files?workspace=${encodeURIComponent(workspace)}`)
       .then((res) => (res.ok ? res.json() : { files: [] }))
       .then((data) => setFiles(data.files || []))
       .catch(() => setFiles([]));
@@ -111,7 +125,6 @@ export default function App() {
     }
   };
 
-  // Clear conversation state
   const handleClear = () => {
     setMessages([INITIAL_MESSAGE]);
   };
@@ -129,7 +142,7 @@ export default function App() {
     setLoading(true);
 
     try {
-      const response = await fetch('/api/chat', {
+      const response = await fetch(`${API_BASE_URL}/api/chat`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
@@ -161,20 +174,37 @@ export default function App() {
   return (
     <div style={styles.container}>
       {/* Top Header */}
-      <header style={styles.header}>
+      <header
+        style={{
+          ...styles.header,
+          flexDirection: isMobile ? 'column' : 'row',
+          alignItems: isMobile ? 'stretch' : 'center',
+          gap: isMobile ? '10px' : '0',
+          padding: isMobile ? '10px 14px' : '12px 24px',
+        }}
+      >
         <div style={styles.titleSection}>
           <h2 style={styles.title}>Autonomous Coding Agent</h2>
           <span style={styles.statusBadge}>Active</span>
         </div>
 
-        <div style={styles.controlsGroup}>
+        <div
+          style={{
+            ...styles.controlsGroup,
+            justifyContent: isMobile ? 'space-between' : 'flex-end',
+            width: isMobile ? '100%' : 'auto',
+          }}
+        >
           <div style={styles.workspaceControls}>
             <label style={styles.label}>Workspace:</label>
             <input
               type="text"
               value={workspace}
               onChange={(e) => setWorkspace(e.target.value)}
-              style={styles.workspaceInput}
+              style={{
+                ...styles.workspaceInput,
+                width: isMobile ? '80px' : '130px',
+              }}
             />
             {availableWorkspaces.length > 0 && (
               <select
@@ -191,14 +221,23 @@ export default function App() {
             )}
           </div>
 
-          <button onClick={handleClear} style={styles.clearBtn} title="Clear conversation history">
+          <button
+            onClick={handleClear}
+            style={styles.clearBtn}
+            title="Clear conversation history"
+          >
             Clear
           </button>
         </div>
       </header>
 
       {/* Messages */}
-      <div style={styles.messageList}>
+      <div
+        style={{
+          ...styles.messageList,
+          padding: isMobile ? '14px 10px' : '24px 32px',
+        }}
+      >
         {messages.map((msg, index) => {
           const isUser = msg.role === 'user';
           return (
@@ -214,7 +253,7 @@ export default function App() {
                   ...styles.messageBubble,
                   backgroundColor: isUser ? '#1d4ed8' : '#111827',
                   borderColor: isUser ? '#2563eb' : '#1f2937',
-                  maxWidth: isUser ? '65%' : '82%',
+                  maxWidth: isMobile ? '92%' : isUser ? '65%' : '82%',
                   borderTopRightRadius: isUser ? '2px' : '8px',
                   borderTopLeftRadius: !isUser ? '2px' : '8px',
                 }}
@@ -240,7 +279,9 @@ export default function App() {
                             <table style={styles.table}>{children}</table>
                           </div>
                         ),
-                        thead: ({ children }) => <thead style={styles.thead}>{children}</thead>,
+                        thead: ({ children }) => (
+                          <thead style={styles.thead}>{children}</thead>
+                        ),
                         tbody: ({ children }) => <tbody>{children}</tbody>,
                         tr: ({ children }) => <tr style={styles.tr}>{children}</tr>,
                         th: ({ children }) => <th style={styles.th}>{children}</th>,
@@ -275,14 +316,21 @@ export default function App() {
 
         {loading && (
           <div style={styles.loadingWrapper}>
-            <span style={styles.loadingText}>Agent working in <code>/{workspace}</code>...</span>
+            <span style={styles.loadingText}>
+              Agent working in <code>/{workspace}</code>...
+            </span>
           </div>
         )}
         <div ref={messagesEndRef} />
       </div>
 
       {/* Input Section & File Picker Overlay */}
-      <div style={styles.inputArea}>
+      <div
+        style={{
+          ...styles.inputArea,
+          padding: isMobile ? '0 8px' : '0 16px',
+        }}
+      >
         {showPicker && (
           <div style={styles.pickerPopup}>
             <div style={styles.pickerHeader}>Files in /{workspace}</div>
@@ -292,7 +340,8 @@ export default function App() {
                 onClick={() => selectFile(file)}
                 style={{
                   ...styles.pickerItem,
-                  backgroundColor: idx === selectedPickerIdx ? '#334155' : 'transparent',
+                  backgroundColor:
+                    idx === selectedPickerIdx ? '#334155' : 'transparent',
                 }}
               >
                 📄 {file}
@@ -301,14 +350,25 @@ export default function App() {
           </div>
         )}
 
-        <form onSubmit={handleSend} style={styles.inputContainer}>
+        <form
+          onSubmit={handleSend}
+          style={{
+            ...styles.inputContainer,
+            padding: isMobile ? '8px 4px' : '12px 16px',
+            gap: isMobile ? '6px' : '10px',
+          }}
+        >
           <input
             ref={inputRef}
             type="text"
             value={input}
             onChange={handleInputChange}
             onKeyDown={handleKeyDown}
-            placeholder={`Type a prompt, or '@' to reference files in /${workspace}...`}
+            placeholder={
+              isMobile
+                ? `Type prompt or '@' in /${workspace}...`
+                : `Type a prompt, or '@' to reference files in /${workspace}...`
+            }
             style={styles.input}
             disabled={loading}
           />
@@ -318,6 +378,7 @@ export default function App() {
             style={{
               ...styles.button,
               opacity: loading || !input.trim() ? 0.6 : 1,
+              padding: isMobile ? '8px 14px' : '10px 18px',
             }}
           >
             Send
@@ -332,20 +393,20 @@ const styles = {
   container: {
     display: 'flex',
     flexDirection: 'column',
-    height: '100vh',
-    width: '100vw',
+    height: '100dvh',
+    width: '100%',
     backgroundColor: '#0b0f19',
     color: '#e2e8f0',
     textAlign: 'left',
-    fontFamily: '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    fontFamily:
+      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
+    overflow: 'hidden',
   },
   header: {
-    padding: '12px 24px',
     backgroundColor: '#111827',
     borderBottom: '1px solid #1f2937',
     display: 'flex',
     justifyContent: 'space-between',
-    alignItems: 'center',
     flexShrink: 0,
   },
   titleSection: {
@@ -390,7 +451,6 @@ const styles = {
     color: '#f9fafb',
     padding: '4px 8px',
     fontSize: '0.8rem',
-    width: '130px',
     fontFamily: 'monospace',
     outline: 'none',
   },
@@ -416,21 +476,22 @@ const styles = {
   messageList: {
     flex: 1,
     overflowY: 'auto',
-    padding: '24px 32px',
     display: 'flex',
     flexDirection: 'column',
-    gap: '20px',
+    gap: '16px',
     width: '100%',
     margin: 0,
+    boxSizing: 'border-box',
   },
   messageWrapper: {
     display: 'flex',
     width: '100%',
-    padding: '0 8px',
+    padding: '0 4px',
+    boxSizing: 'border-box',
   },
   messageBubble: {
     width: 'fit-content',
-    padding: '14px 18px',
+    padding: '12px 16px',
     borderRadius: '10px',
     border: '1px solid #1f2937',
     textAlign: 'left',
@@ -441,7 +502,7 @@ const styles = {
     fontWeight: '700',
     letterSpacing: '0.05em',
     textTransform: 'uppercase',
-    marginBottom: '8px',
+    marginBottom: '6px',
   },
   messageContent: {
     textAlign: 'left',
@@ -450,60 +511,6 @@ const styles = {
     color: '#e5e7eb',
     wordBreak: 'break-word',
   },
-
-  /* Markdown Typography & Structure */
-  mdH1: {
-    fontSize: '1.25rem',
-    fontWeight: '700',
-    color: '#f9fafb',
-    margin: '16px 0 8px 0',
-    borderBottom: '1px solid #374151',
-    paddingBottom: '4px',
-    textAlign: 'left',
-  },
-  mdH2: {
-    fontSize: '1.1rem',
-    fontWeight: '600',
-    color: '#f3f4f6',
-    margin: '14px 0 6px 0',
-    textAlign: 'left',
-  },
-  mdH3: {
-    fontSize: '0.98rem',
-    fontWeight: '600',
-    color: '#e5e7eb',
-    margin: '12px 0 4px 0',
-    textAlign: 'left',
-  },
-  mdP: {
-    margin: '0 0 10px 0',
-    lineHeight: '1.6',
-    textAlign: 'left',
-  },
-  mdUl: {
-    margin: '0 0 10px 0',
-    paddingLeft: '22px',
-    textAlign: 'left',
-  },
-  mdOl: {
-    margin: '0 0 10px 0',
-    paddingLeft: '22px',
-    textAlign: 'left',
-  },
-  mdLi: {
-    marginBottom: '6px',
-    lineHeight: '1.5',
-    textAlign: 'left',
-  },
-  blockquote: {
-    borderLeft: '3px solid #3b82f6',
-    paddingLeft: '12px',
-    margin: '8px 0',
-    color: '#9ca3af',
-    textAlign: 'left',
-  },
-
-  /* Tables */
   tableContainer: {
     width: '100%',
     overflowX: 'auto',
@@ -541,24 +548,6 @@ const styles = {
     lineHeight: '1.5',
     textAlign: 'left',
   },
-
-  /* Code & Syntax */
-  codeBlockWrapper: {
-    borderRadius: '6px',
-    overflow: 'hidden',
-    border: '1px solid #1f2937',
-    margin: '12px 0',
-    backgroundColor: '#030712',
-    textAlign: 'left',
-  },
-  codeHeader: {
-    backgroundColor: '#111827',
-    padding: '4px 12px',
-    fontSize: '0.72rem',
-    color: '#6b7280',
-    fontFamily: 'monospace',
-    borderBottom: '1px solid #1f2937',
-  },
   codeBlock: {
     padding: '12px 16px',
     overflowX: 'auto',
@@ -566,6 +555,9 @@ const styles = {
     fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
     color: '#e5e7eb',
     margin: 0,
+    backgroundColor: '#030712',
+    borderRadius: '6px',
+    border: '1px solid #1f2937',
     textAlign: 'left',
   },
   inlineCode: {
@@ -577,8 +569,6 @@ const styles = {
     fontFamily: 'ui-monospace, monospace',
     display: 'inline',
   },
-
-  /* Footer & Input */
   loadingWrapper: {
     alignSelf: 'flex-start',
     padding: '8px 16px',
@@ -593,9 +583,9 @@ const styles = {
     backgroundColor: '#111827',
     borderTop: '1px solid #1f2937',
     width: '100%',
-    padding: '0 16px',
     margin: 0,
     flexShrink: 0,
+    boxSizing: 'border-box',
   },
   pickerPopup: {
     position: 'absolute',
@@ -626,8 +616,8 @@ const styles = {
   },
   inputContainer: {
     display: 'flex',
-    padding: '12px 16px',
-    gap: '10px',
+    boxSizing: 'border-box',
+    width: '100%',
   },
   input: {
     flex: 1,
@@ -639,9 +629,9 @@ const styles = {
     outline: 'none',
     fontSize: '0.9rem',
     fontFamily: 'inherit',
+    minWidth: 0,
   },
   button: {
-    padding: '10px 18px',
     borderRadius: '6px',
     backgroundColor: '#2563eb',
     color: '#ffffff',
@@ -649,5 +639,26 @@ const styles = {
     fontWeight: '600',
     cursor: 'pointer',
     fontSize: '0.85rem',
+    flexShrink: 0,
+  },
+  mdP: {
+    margin: '0 0 10px 0',
+    lineHeight: '1.6',
+    textAlign: 'left',
+  },
+  mdUl: {
+    margin: '0 0 10px 0',
+    paddingLeft: '22px',
+    textAlign: 'left',
+  },
+  mdOl: {
+    margin: '0 0 10px 0',
+    paddingLeft: '22px',
+    textAlign: 'left',
+  },
+  mdLi: {
+    marginBottom: '6px',
+    lineHeight: '1.5',
+    textAlign: 'left',
   },
 };
