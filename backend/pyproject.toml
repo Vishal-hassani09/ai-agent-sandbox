@@ -17,7 +17,8 @@ dependencies = [
     "pytest",
     "pytest-mock",
     "pytest-cov",
-    "httpx"
+    "httpx",
+    "slowapi>=0.1.9",
 ]
 
 [project.scripts]
