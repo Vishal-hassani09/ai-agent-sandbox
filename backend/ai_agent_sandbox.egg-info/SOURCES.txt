@@ -18,6 +18,7 @@ app/cli/__init__.py
 app/cli/__main__.py
 app/cli/auth_manager.py
 app/cli/client.py
+app/cli/daemon.py
 app/cli/tool_executor.py
 app/cli/ui.py
 app/core/__init__.py
@@ -29,6 +30,7 @@ app/db/session.py
 app/schemas/__init__.py
 app/schemas/session_schemas.py
 app/tools/__init__.py
+app/tools/ask_user.py
 app/tools/base.py
 app/tools/file_search.py
 app/tools/file_system.py
@@ -36,3 +38,4 @@ app/tools/terminal.py
 app/utils/common_utils.py
 app/utils/prompt_expander.py
 tests/test_api.py
+tests/test_full_suite.py
