@@ -1,8 +1,9 @@
 from typing import Any, Dict, List
 from app.tools.base import BaseTool
 from app.tools.file_search import GlobTool
-from app.tools.file_system import ListDirectoryTool, ReadFileTool, WriteFileTool
+from app.tools.file_system import ListDirectoryTool, ReadFileTool, WriteFileTool, EditFileTool
 from app.tools.terminal import ShellTool
+from app.tools.ask_user import AskUserTool
 
 
 class ToolRegistry:
@@ -43,5 +44,7 @@ def get_default_registry() -> ToolRegistry:
     registry.register(ListDirectoryTool())
     registry.register(ShellTool())
     registry.register(GlobTool())
+    registry.register(EditFileTool())
+    registry.register(AskUserTool())
 
     return registry

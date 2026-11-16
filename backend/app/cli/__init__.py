@@ -1,59 +1,82 @@
+"""CLI entry point for the Autonomous Coding Agent (supports Terminal CLI and Render Web UI modes)."""
 import argparse
 import os
 import sys
 from pathlib import Path
 
+from app.cli.auth_manager import login_or_register_cli
+from app.cli.client import AssistantAPIClient
+from app.cli.daemon import start_ui_daemon
 from app.cli.ui import AgentTerminalUI
-from app.config import settings
-from app.core.agent import CodingAgent
-from app.tools import ToolRegistry
-from app.tools.file_search import GlobTool
-from app.tools.file_system import ReadFileTool, WriteFileTool
-from app.tools.terminal import ShellTool
-
-
-def parse_args():
-    parser = argparse.ArgumentParser(
-        description="Autonomous Coding Agent CLI",
-        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
-    )
-    parser.add_argument(
-        "-w",
-        "--workspace",
-        type=str,
-        default=".",
-        help="Path to the target project/workspace directory",
-    )
-    return parser.parse_args()
 
 
 def main():
-    args = parse_args()
-    workspace_path = Path(args.workspace).resolve()
+    parser = argparse.ArgumentParser(
+        prog="ai-coder",
+        description="Autonomous Coding Agent — Terminal CLI & Render Web UI Device Bridge",
+    )
+    parser.add_argument(
+        "mode",
+        nargs="?",
+        choices=["cli", "ui"],
+        default=None,
+        help="Launch mode: 'cli' for terminal interface, 'ui' to connect local device to Render Web UI.",
+    )
+    parser.add_argument(
+        "--ui",
+        action="store_true",
+        help="Shortcut flag to launch the local device bridge and open the Render Web UI.",
+    )
+    parser.add_argument(
+        "--no-browser",
+        action="store_true",
+        help="Do not automatically open the browser when starting in UI bridge mode.",
+    )
+    args = parser.parse_args()
 
-    if not workspace_path.exists():
-        print(f"Error: Target workspace directory does not exist: {workspace_path}", file=sys.stderr)
+    try:
+        # 1. Resolve active working directory on user's machine
+        workspace = str(Path(os.getcwd()).resolve())
+
+        # 2. Determine preferred interface mode (CLI vs Web UI)
+        selected_mode = "ui" if args.ui else args.mode
+        if selected_mode is None:
+            print("\nSelect interface mode:")
+            print("  [1] Terminal CLI  (Interactive coding directly in this terminal)")
+            print("  [2] Web Studio UI (Open Render Web UI connected to your local device)")
+            choice = input("Enter choice [1/2] (default: 1): ").strip().lower()
+            selected_mode = "ui" if choice in ("2", "ui", "web") else "cli"
+
+        # 3A. Web UI Mode: start device bridge immediately (login happens ONLY on the Web UI)
+        if selected_mode == "ui":
+            start_ui_daemon(
+                workspace_path=workspace,
+                open_browser=not args.no_browser,
+            )
+            return
+
+        # 3B. Terminal CLI Mode: authenticate in terminal and run TUI
+        token = login_or_register_cli()
+        client = AssistantAPIClient(token)
+
+        sessions = client.list_sessions_for_workspace(workspace)
+        if not sessions:
+            folder_name = Path(workspace).name or "Root"
+            new_sess = client.create_session(workspace, f"Session in {folder_name}")
+            sessions = [new_sess]
+
+        ui = AgentTerminalUI(
+            api_client=client,
+            workspace_path=workspace,
+            initial_sessions=sessions,
+        )
+        ui.run()
+
+    except KeyboardInterrupt:
+        sys.exit(0)
+    except Exception as e:
+        print(f"\n[CLI Error] {e}", file=sys.stderr)
         sys.exit(1)
-
-    # 1. Update config settings to target workspace
-    settings.WORKSPACE_DIR = str(workspace_path)
-
-    # 2. Change working directory so relative file globs and terminal tools stay bounded to workspace
-    os.chdir(workspace_path)
-
-    # 3. Setup tool registry scoped to workspace
-    registry = ToolRegistry()
-    registry.register(ReadFileTool())
-    registry.register(WriteFileTool())
-    registry.register(ShellTool())
-    registry.register(GlobTool())
-
-    # 4. Instantiate core agent
-    agent = CodingAgent(registry)
-
-    # 5. Launch UI
-    ui = AgentTerminalUI(agent=agent, workspace_path=str(workspace_path))
-    ui.run()
 
 
 if __name__ == "__main__":

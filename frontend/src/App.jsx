@@ -1,664 +1,1150 @@
 import { useState, useRef, useEffect } from 'react';
-import ReactMarkdown from 'react-markdown';
-import remarkGfm from 'remark-gfm';
+import './App.css';
+import {
+  apiClient,
+  getStoredAuth,
+  setStoredAuth,
+  clearStoredAuth,
+} from './api/client';
+import AuthModal from './components/AuthModal';
+import Sidebar from './components/Sidebar';
+import FilesDrawer from './components/FilesDrawer';
+import MessageStream from './components/MessageStream';
 
-const API_BASE_URL =
-  import.meta.env.VITE_API_URL || 'https://ai-agent-sandbox-backend-dgcj.onrender.com';
+const SAFE_READ_ONLY_TOOLS = new Set([
+  'readfile',
+  'read',
+  'viewfile',
+  'cat',
+  'listdirectory',
+  'listdir',
+  'listfiles',
+  'ls',
+  'dir',
+  'glob',
+  'globsearch',
+  'globfiles',
+  'find',
+  'filesearch',
+  'memoryprobe',
+]);
 
-const INITIAL_MESSAGE = {
-  role: 'assistant',
-  content: 'Hello! Type `@` to reference files, or ask me to inspect, run, and modify code.',
-};
+const SLASH_COMMANDS = [
+  { cmd: '/init', desc: 'Generate or update AGENTS.md workspace memory' },
+  { cmd: '/memory', desc: 'View active AGENTS.md workspace memory' },
+  { cmd: '/compact', desc: 'Summarize older turns to free context' },
+  { cmd: '/clear', desc: 'Clear all messages from UI and session DB' },
+  { cmd: '/new', desc: 'Start a fresh session in current workspace' },
+];
+
+function normalizeToolName(name) {
+  return (name || '').toLowerCase().replace(/[_.-]/g, '');
+}
 
 export default function App() {
-  const [workspace, setWorkspace] = useState('workspace');
-  const [availableWorkspaces, setAvailableWorkspaces] = useState(['workspace']);
-  const [messages, setMessages] = useState([INITIAL_MESSAGE]);
-  const [input, setInput] = useState('');
-  const [loading, setLoading] = useState(false);
+  const [auth, setAuth] = useState(() => getStoredAuth());
 
-  // Responsive state hook
-  const [isMobile, setIsMobile] = useState(
-    typeof window !== 'undefined' ? window.innerWidth < 768 : false
+  const [workspace, setWorkspace] = useState(
+    () => localStorage.getItem('ai_coder_workspace') || ''
   );
-
-  useEffect(() => {
-    const handleResize = () => setIsMobile(window.innerWidth < 768);
-    window.addEventListener('resize', handleResize);
-    return () => window.removeEventListener('resize', handleResize);
-  }, []);
-
-  // File picker state
+  const [availableWorkspaces, setAvailableWorkspaces] = useState([]);
+  const [daemonStatus, setDaemonStatus] = useState({ connected: false, cwd: '' });
+  const [sessions, setSessions] = useState([]);
+  const [activeSessionId, setActiveSessionId] = useState(null);
+  const [messages, setMessages] = useState([]);
   const [files, setFiles] = useState([]);
-  const [fileSuggestions, setFileSuggestions] = useState([]);
-  const [showPicker, setShowPicker] = useState(false);
-  const [selectedPickerIdx, setSelectedPickerIdx] = useState(0);
 
+  // Panel visibility states (both sidebars independently collapsible like Claude)
+  const [leftSidebarOpen, setLeftSidebarOpen] = useState(true);
+  const [rightFilesOpen, setRightFilesOpen] = useState(false);
+
+  // Bottom workspace switcher & folder browser state
+  const [wsMenuOpen, setWsMenuOpen] = useState(false);
+  const [browserOpen, setBrowserOpen] = useState(false);
+  const [browsePath, setBrowsePath] = useState('');
+  const [parentPath, setParentPath] = useState(null);
+  const [subFolders, setSubFolders] = useState([]);
+  const [browseLoading, setBrowseLoading] = useState(false);
+
+  const [input, setInput] = useState('');
+  const [isTurnRunning, setIsTurnRunning] = useState(false);
+  const [activeCard, setActiveCard] = useState(null);
+  const [sessionApprovedTools, setSessionApprovedTools] = useState(new Set());
+  const [popupItems, setPopupItems] = useState([]);
+  const [popupType, setPopupType] = useState(null);
+  const [selectedPopupIdx, setSelectedPopupIdx] = useState(0);
+
+  const wsRef = useRef(null);
   const inputRef = useRef(null);
   const messagesEndRef = useRef(null);
+  const approvedToolsRef = useRef(sessionApprovedTools);
 
   useEffect(() => {
-    if (!loading) {
-      inputRef.current?.focus();
-    }
-  }, [loading]);
-
-  // Fetch workspaces on boot using the direct backend URL
-  useEffect(() => {
-    fetch(`${API_BASE_URL}/api/workspaces`)
-      .then((res) => (res.ok ? res.json() : { workspaces: ['workspace'] }))
-      .then((data) => {
-        if (data.workspaces?.length > 0) {
-          setAvailableWorkspaces(data.workspaces);
-          setWorkspace(data.workspaces[0]);
-        }
-      })
-      .catch(() => {});
-  }, []);
-
-  // Refresh workspace files whenever workspace changes
-  useEffect(() => {
-    if (!workspace) return;
-    fetch(`${API_BASE_URL}/api/workspace/files?workspace=${encodeURIComponent(workspace)}`)
-      .then((res) => (res.ok ? res.json() : { files: [] }))
-      .then((data) => setFiles(data.files || []))
-      .catch(() => setFiles([]));
-  }, [workspace]);
+    approvedToolsRef.current = sessionApprovedTools;
+  }, [sessionApprovedTools]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, loading]);
+  }, [messages, activeCard, isTurnRunning]);
 
-  // Handle typing & detect '@'
-  const handleInputChange = (e) => {
-    const val = e.target.value;
-    setInput(val);
-
-    const cursorPos = e.target.selectionStart;
-    const textBeforeCursor = val.slice(0, cursorPos);
-    const atMatch = textBeforeCursor.match(/@([a-zA-Z0-9_\-./]*)$/);
-
-    if (atMatch) {
-      const query = atMatch[1].toLowerCase();
-      const filtered = files.filter((f) => f.toLowerCase().includes(query));
-      setFileSuggestions(filtered);
-      setShowPicker(filtered.length > 0);
-      setSelectedPickerIdx(0);
-    } else {
-      setShowPicker(false);
-    }
-  };
-
-  // Insert selected file into input text
-  const selectFile = (filename) => {
-    const cursorPos = inputRef.current.selectionStart;
-    const textBeforeCursor = input.slice(0, cursorPos);
-    const textAfterCursor = input.slice(cursorPos);
-    const atIndex = textBeforeCursor.lastIndexOf('@');
-
-    const nextText =
-      textBeforeCursor.slice(0, atIndex) + `@${filename} ` + textAfterCursor;
-    setInput(nextText);
-    setShowPicker(false);
-    inputRef.current.focus();
-  };
-
-  // Keyboard navigation for '@' popup
-  const handleKeyDown = (e) => {
-    if (!showPicker) return;
-
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      setSelectedPickerIdx((prev) => (prev + 1) % fileSuggestions.length);
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      setSelectedPickerIdx((prev) =>
-        prev === 0 ? fileSuggestions.length - 1 : prev - 1
+  // Capture ?bridge_id= immediately on page load before auth redirects or URL changes
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const bridgeIdFromUrl = params.get('bridge_id');
+    if (bridgeIdFromUrl) {
+      sessionStorage.setItem('ai_coder_bridge_id', bridgeIdFromUrl);
+      params.delete('bridge_id');
+      const cleanQuery = params.toString();
+      window.history.replaceState(
+        {},
+        '',
+        window.location.pathname + (cleanQuery ? `?${cleanQuery}` : '')
       );
-    } else if (e.key === 'Enter' || e.key === 'Tab') {
-      e.preventDefault();
-      if (fileSuggestions[selectedPickerIdx]) {
-        selectFile(fileSuggestions[selectedPickerIdx]);
-      }
-    } else if (e.key === 'Escape') {
-      setShowPicker(false);
     }
-  };
+  }, []);
 
-  const handleClear = () => {
-    setMessages([INITIAL_MESSAGE]);
-  };
+  // Poll local device bridge status & claim pending bridge_id once authenticated
+  useEffect(() => {
+    if (!auth.token) return;
+    let cancelled = false;
 
-  const handleSend = async (e) => {
-    e.preventDefault();
-    if (!input.trim() || loading) return;
+    async function checkDaemon() {
+      const pendingBridgeId = sessionStorage.getItem('ai_coder_bridge_id');
+      let status;
 
-    const userMessage = { role: 'user', content: input };
-    const updatedHistory = [...messages, userMessage];
-
-    setMessages(updatedHistory);
-    setInput('');
-    setShowPicker(false);
-    setLoading(true);
-
-    try {
-      const response = await fetch(`${API_BASE_URL}/api/chat`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          workspace: workspace.trim() || 'workspace',
-          messages: updatedHistory,
-        }),
-      });
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Server returned ${response.status}`);
+      if (pendingBridgeId) {
+        sessionStorage.removeItem('ai_coder_bridge_id');
+        status = await apiClient.claimDaemonBridge(pendingBridgeId);
+      } else {
+        status = await apiClient.getDaemonStatus();
       }
 
-      const data = await response.json();
-      setMessages((prev) => [
-        ...prev,
-        { role: 'assistant', content: data.response },
+      if (cancelled) return;
+      setDaemonStatus(status || { connected: false, cwd: '' });
+      if (status?.connected && status?.cwd && !workspace) {
+        setWorkspace(status.cwd);
+      }
+    }
+
+    checkDaemon();
+    const timer = setInterval(checkDaemon, 5000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [auth.token]);
+
+  // Load workspaces, files, and sessions whenever workspace or daemon changes
+  useEffect(() => {
+    if (!auth.token) return;
+    loadWorkspacesAndSessions();
+  }, [auth.token, workspace, daemonStatus.connected]);
+
+  useEffect(() => {
+    if (!auth.token || !activeSessionId) return;
+    setSessionApprovedTools(new Set());
+    loadSessionMessages(activeSessionId);
+  }, [auth.token, activeSessionId]);
+
+  async function loadWorkspacesAndSessions() {
+    try {
+      const srvWs = await apiClient.listServerWorkspaces();
+      const activeWs = workspace || srvWs[0] || 'workspace';
+      if (!workspace && activeWs) {
+        setWorkspace(activeWs);
+        return;
+      }
+
+      localStorage.setItem('ai_coder_workspace', activeWs);
+      const [wsFiles, sessList] = await Promise.all([
+        apiClient.listWorkspaceFiles(activeWs),
+        apiClient.listSessions(activeWs),
       ]);
+
+      const mergedWs = Array.from(new Set([activeWs, ...srvWs].filter(Boolean)));
+      setAvailableWorkspaces(mergedWs);
+      setFiles(wsFiles || []);
+      setSessions(sessList || []);
+
+      if (sessList && sessList.length > 0) {
+        if (!activeSessionId || !sessList.some((s) => s.id === activeSessionId)) {
+          setActiveSessionId(sessList[0].id);
+        }
+      } else {
+        await handleCreateNewSession(activeWs);
+      }
+    } catch (err) {
+      if (err.status === 401) {
+        handleLogout();
+      }
+    }
+  }
+
+  async function loadSessionMessages(sessionId) {
+    try {
+      const detail = await apiClient.getSessionDetail(sessionId);
+      const blocks = [];
+      for (const msg of detail.messages || []) {
+        const role = msg.role;
+        const raw = msg.content || '';
+
+        if (role === 'user') {
+          let clean = raw;
+          let attachment = '';
+          if (raw.includes('\n--- Attached File:')) {
+            const splitIdx = raw.indexOf('\n--- Attached File:');
+            clean = raw.slice(0, splitIdx).trim();
+            attachment = raw.slice(splitIdx + 1);
+          }
+          blocks.push({
+            kind: 'user',
+            content: clean,
+            attachment,
+            isExpanded: false,
+          });
+        } else if (role === 'assistant' || role === 'agent') {
+          blocks.push({ kind: 'agent', content: raw });
+        } else if (
+          role === 'system' &&
+          raw.startsWith('[Compacted Conversation Summary]:')
+        ) {
+          blocks.push({
+            kind: 'compacted_summary',
+            content: raw.replace('[Compacted Conversation Summary]:', '').trim(),
+          });
+        } else if (role === 'tool') {
+          const lineCount = raw.split('\n').length;
+          blocks.push({
+            kind: 'tool_action',
+            summary: `Tool Output (${lineCount} lines)`,
+            details: raw,
+            isExpanded: false,
+          });
+        }
+      }
+      setMessages(blocks);
+    } catch (err) {
+      setMessages([
+        {
+          kind: 'error',
+          content: `Could not load session history: ${err.message}`,
+        },
+      ]);
+    }
+  }
+
+  async function handleCreateNewSession(targetWs = null) {
+    const wsToUse = targetWs || workspace || 'workspace';
+    try {
+      setSessionApprovedTools(new Set());
+      const created = await apiClient.createSession(wsToUse, 'New session');
+      const sessList = await apiClient.listSessions(wsToUse);
+      setSessions(sessList || [created]);
+      setActiveSessionId(created.id);
+      setMessages([]);
     } catch (err) {
       setMessages((prev) => [
         ...prev,
-        { role: 'assistant', content: `⚠️ Error: ${err.message}` },
+        { kind: 'error', content: `Failed to create session: ${err.message}` },
       ]);
-    } finally {
-      setLoading(false);
     }
-  };
+  }
+
+  async function openFolderBrowser(startPath = '') {
+    setWsMenuOpen(false);
+    setBrowserOpen(true);
+    setBrowseLoading(true);
+    try {
+      const data = await apiClient.browseFolders(startPath || workspace || '');
+      setBrowsePath(data.current_path || '');
+      setParentPath(data.parent_path || null);
+      setSubFolders(data.folders || []);
+    } catch {
+      setSubFolders([]);
+    } finally {
+      setBrowseLoading(false);
+    }
+  }
+
+  function handleAuthSuccess(tokenData) {
+    setStoredAuth(tokenData);
+    setAuth({
+      token: tokenData.access_token,
+      email: tokenData.email,
+      userId: tokenData.user_id,
+    });
+  }
+
+  function handleLogout() {
+    clearStoredAuth();
+    setAuth({ token: '', email: '', userId: '' });
+    setSessions([]);
+    setActiveSessionId(null);
+    setMessages([]);
+  }
+
+  function presentInteractiveCard(title, questions) {
+    return new Promise((resolve) => {
+      setActiveCard({
+        title,
+        questions,
+        currentQIdx: 0,
+        answers: {},
+        resolve,
+      });
+    });
+  }
+
+  async function requestToolApproval(toolName, toolArgs) {
+    const norm = normalizeToolName(toolName);
+    if (SAFE_READ_ONLY_TOOLS.has(norm) || approvedToolsRef.current.has(norm)) {
+      return { approved: true, customReply: '' };
+    }
+
+    const preview = JSON.stringify(toolArgs);
+    const questions = [
+      {
+        header: 'Permission',
+        question: `Allow execution of ${toolName} on your local machine?`,
+        subtitle: `Args: ${
+          preview.length > 100 ? preview.slice(0, 97) + '...' : preview
+        }`,
+        options: [
+          'Allow once',
+          `Always allow '${toolName}' during this session`,
+          'Deny',
+        ],
+      },
+    ];
+
+    const answers = await presentInteractiveCard(
+      `⚠ Tool Permission: ${toolName}`,
+      questions
+    );
+    if (!answers) {
+      return {
+        approved: false,
+        customReply: `User cancelled or denied execution of '${toolName}'.`,
+      };
+    }
+
+    const choice = answers[0] || 'Deny';
+    if (choice === 'Allow once') return { approved: true, customReply: '' };
+    if (choice.startsWith('Always allow')) {
+      const next = new Set(approvedToolsRef.current);
+      next.add(norm);
+      setSessionApprovedTools(next);
+      return { approved: true, customReply: '' };
+    }
+    if (choice === 'Deny') {
+      return {
+        approved: false,
+        customReply: `User denied permission to execute '${toolName}'.`,
+      };
+    }
+    return {
+      approved: false,
+      customReply: `User declined '${toolName}' with custom instructions: ${choice}`,
+    };
+  }
+
+  async function handleAskUserTool(toolArgs) {
+    let rawQuestions = toolArgs.questions || [];
+    if (!rawQuestions.length) {
+      rawQuestions = [
+        {
+          header: 'Question',
+          question: toolArgs.question || 'Please provide your input:',
+          options: toolArgs.options || ['Yes', 'No'],
+        },
+      ];
+    }
+    const answers = await presentInteractiveCard(
+      'Clarifying Questions',
+      rawQuestions
+    );
+    if (!answers) return 'User cancelled the question prompt.';
+    const lines = ['User responses:'];
+    rawQuestions.forEach((q, idx) => {
+      lines.push(
+        `- ${q.header || q.question || `Question ${idx + 1}`}: ${
+          answers[idx] || '(no response)'
+        }`
+      );
+    });
+    return lines.join('\n');
+  }
+
+  function handleSelectCardOption(chosenValue) {
+    if (!activeCard) return;
+    const { questions, currentQIdx, answers, resolve } = activeCard;
+    const nextAnswers = { ...answers, [currentQIdx]: chosenValue };
+
+    if (
+      questions.length > 1 &&
+      Object.keys(nextAnswers).length < questions.length
+    ) {
+      let nextIdx = currentQIdx;
+      for (let i = 0; i < questions.length; i++) {
+        if (!(i in nextAnswers)) {
+          nextIdx = i;
+          break;
+        }
+      }
+      setActiveCard({
+        ...activeCard,
+        answers: nextAnswers,
+        currentQIdx: nextIdx,
+      });
+      return;
+    }
+
+    setActiveCard(null);
+    resolve(nextAnswers);
+  }
+
+  function handleCancelCard() {
+    if (activeCard?.resolve) {
+      activeCard.resolve(null);
+    }
+    setActiveCard(null);
+  }
+
+  function handleCancelTurn() {
+    if (wsRef.current && wsRef.current.readyState === WebSocket.OPEN) {
+      wsRef.current.send(JSON.stringify({ type: 'cancel_turn' }));
+    }
+    handleCancelCard();
+  }
+
+  function sendWsSessionCommand(type) {
+    if (!activeSessionId) return;
+    const ws = new WebSocket(apiClient.getWebSocketUrl(activeSessionId));
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type }));
+    };
+    ws.onmessage = (ev) => {
+      const data = JSON.parse(ev.data);
+      if (data.type === 'session_cleared') {
+        setMessages([]);
+      } else if (data.type === 'session_compacted') {
+        if (data.compacted_count > 0) {
+          loadSessionMessages(activeSessionId);
+        } else if (data.summary) {
+          setMessages((prev) => [
+            ...prev,
+            { kind: 'compacted_summary', content: data.summary },
+          ]);
+        }
+      }
+      ws.close();
+    };
+  }
+
+  async function runTurnOverWebSocket(rawPrompt, displayPrompt = null) {
+    if (!activeSessionId || isTurnRunning) return;
+
+    setMessages((prev) => [
+      ...prev,
+      {
+        kind: 'user',
+        content: displayPrompt || rawPrompt,
+        attachment: '',
+        isExpanded: false,
+      },
+      { kind: 'thinking', content: '' },
+    ]);
+    setIsTurnRunning(true);
+
+    const wsUrl = apiClient.getWebSocketUrl(activeSessionId);
+    const ws = new WebSocket(wsUrl);
+    wsRef.current = ws;
+    let streamingStarted = false;
+
+    ws.onopen = () => {
+      ws.send(JSON.stringify({ type: 'user_message', content: rawPrompt }));
+    };
+
+    ws.onmessage = async (event) => {
+      const data = JSON.parse(event.data);
+      const msgType = data.type;
+
+      if (msgType === 'tool_approval_request') {
+        const callId = data.call_id || '';
+        const toolName = data.tool || '';
+        const toolArgs = data.args || {};
+
+        const { approved, customReply } = await requestToolApproval(
+          toolName,
+          toolArgs
+        );
+        ws.send(
+          JSON.stringify({
+            type: 'tool_approval_response',
+            call_id: callId,
+            approved,
+            message: customReply,
+          })
+        );
+        return;
+      }
+
+      if (msgType === 'tool_executed') {
+        streamingStarted = false;
+        const toolName = data.tool || '';
+        const argPreview = JSON.stringify(data.args || {});
+        const shortArgs =
+          argPreview.length > 55 ? argPreview.slice(0, 52) + '...' : argPreview;
+
+        setMessages((prev) => [
+          ...prev.filter((m) => m.kind !== 'thinking'),
+          {
+            kind: 'tool_action',
+            summary: `${toolName}(${shortArgs})`,
+            details: data.output || '',
+            isExpanded: false,
+          },
+          { kind: 'thinking', content: '' },
+        ]);
+        apiClient.listWorkspaceFiles(workspace).then(setFiles).catch(() => {});
+        return;
+      }
+
+      if (msgType === 'tool_call') {
+        const callId = data.call_id || '';
+        const toolName = data.tool || '';
+        const toolArgs = data.args || {};
+        streamingStarted = false;
+
+        if (normalizeToolName(toolName) === 'askuser') {
+          setMessages((prev) => prev.filter((m) => m.kind !== 'thinking'));
+          const answerStr = await handleAskUserTool(toolArgs);
+          setMessages((prev) => [
+            ...prev,
+            {
+              kind: 'tool_action',
+              summary: 'Answered clarifying questions',
+              details: answerStr,
+              isExpanded: false,
+            },
+            { kind: 'thinking', content: '' },
+          ]);
+          ws.send(
+            JSON.stringify({
+              type: 'tool_result',
+              call_id: callId,
+              output: answerStr,
+            })
+          );
+          return;
+        }
+
+        const isInternalProbe =
+          String(callId).endsWith('_probe') || toolName === 'memory_probe';
+        if (isInternalProbe) {
+          ws.send(
+            JSON.stringify({
+              type: 'tool_result',
+              call_id: callId,
+              output: 'Error: Local device bridge not connected.',
+            })
+          );
+          return;
+        }
+
+        ws.send(
+          JSON.stringify({
+            type: 'tool_result',
+            call_id: callId,
+            output:
+              'Error: Local device is not connected. Ask the user to run `ai-coder ui` in their terminal.',
+          })
+        );
+        return;
+      }
+
+      if (msgType === 'token') {
+        const delta = data.delta || '';
+        if (!delta) return;
+        setMessages((prev) => {
+          const clean = prev.filter((m) => m.kind !== 'thinking');
+          if (!streamingStarted) {
+            streamingStarted = true;
+            return [...clean, { kind: 'agent', content: delta }];
+          }
+          const copy = [...clean];
+          const lastIdx = copy.length - 1;
+          if (lastIdx >= 0 && copy[lastIdx].kind === 'agent') {
+            copy[lastIdx] = {
+              ...copy[lastIdx],
+              content: copy[lastIdx].content + delta,
+            };
+          } else {
+            copy.push({ kind: 'agent', content: delta });
+          }
+          return copy;
+        });
+      } else if (msgType === 'turn_complete' || msgType === 'agent_message') {
+        const finalContent = data.content || '';
+        setMessages((prev) => {
+          const clean = prev.filter((m) => m.kind !== 'thinking');
+          if (streamingStarted && clean.length > 0) {
+            const copy = [...clean];
+            const lastIdx = copy.length - 1;
+            if (
+              copy[lastIdx].kind === 'agent' &&
+              finalContent.length > copy[lastIdx].content.length
+            ) {
+              copy[lastIdx] = { ...copy[lastIdx], content: finalContent };
+            }
+            return copy;
+          }
+          if (finalContent) {
+            return [...clean, { kind: 'agent', content: finalContent }];
+          }
+          return clean;
+        });
+        setIsTurnRunning(false);
+        ws.close();
+      } else if (msgType === 'turn_cancelled') {
+        setMessages((prev) => [
+          ...prev.filter((m) => m.kind !== 'thinking'),
+          { kind: 'cancelled', content: '' },
+        ]);
+        setIsTurnRunning(false);
+        ws.close();
+      } else if (msgType === 'session_renamed') {
+        const cleanTitle = (data.title || '').replace(/[*`]/g, '').trim();
+        if (cleanTitle) {
+          setSessions((prev) =>
+            prev.map((s) =>
+              String(s.id) === String(data.session_id)
+                ? { ...s, title: cleanTitle }
+                : s
+            )
+          );
+        }
+      } else if (msgType === 'session_compacted') {
+        if (data.summary) {
+          setMessages((prev) => [
+            ...prev.filter((m) => m.kind !== 'thinking'),
+            { kind: 'compacted_summary', content: data.summary },
+          ]);
+        }
+      } else if (msgType === 'error') {
+        setMessages((prev) => [
+          ...prev.filter((m) => m.kind !== 'thinking'),
+          { kind: 'error', content: data.message || 'Agent error' },
+        ]);
+        setIsTurnRunning(false);
+        ws.close();
+      }
+    };
+
+    ws.onerror = () => {
+      setMessages((prev) => [
+        ...prev.filter((m) => m.kind !== 'thinking'),
+        {
+          kind: 'error',
+          content: 'WebSocket connection failed. Verify your backend server is running.',
+        },
+      ]);
+      setIsTurnRunning(false);
+    };
+
+    ws.onclose = () => {
+      setIsTurnRunning(false);
+    };
+  }
+
+  function executeSlashOrSend(rawText) {
+    const trimmed = (rawText ?? input).trim();
+    if (!trimmed || isTurnRunning) return;
+    setInput('');
+    setPopupType(null);
+
+    const lower = trimmed.toLowerCase();
+    if (lower === '/clear' || lower === 'clear') {
+      sendWsSessionCommand('clear_session');
+      return;
+    }
+    if (lower === '/compact') {
+      sendWsSessionCommand('compact_session');
+      return;
+    }
+    if (lower === '/new') {
+      handleCreateNewSession();
+      return;
+    }
+    if (lower === '/memory') {
+      runTurnOverWebSocket(
+        'Read `AGENTS.md` in the workspace root using read_file and display its contents verbatim.',
+        '/memory'
+      );
+      return;
+    }
+    if (lower === '/init') {
+      const initPrompt =
+        'Inspect the files and structure of this workspace using list_files and read_file, ' +
+        'then create or update `AGENTS.md` in the workspace root with concise, high-signal project memory: ' +
+        'tech stack, key files/directories, run/test commands, and coding conventions.';
+      runTurnOverWebSocket(initPrompt, '/init');
+      return;
+    }
+
+    runTurnOverWebSocket(trimmed);
+  }
+
+  function handleInputChange(e) {
+    const val = e.target.value;
+    setInput(val);
+
+    const cursorPos = e.target.selectionStart ?? val.length;
+    const before = val.slice(0, cursorPos);
+    const stripped = before.trimStart();
+
+    if (stripped.startsWith('/') && !stripped.includes(' ')) {
+      const q = stripped.toLowerCase();
+      const matches = SLASH_COMMANDS.filter((s) => s.cmd.startsWith(q));
+      setPopupItems(matches);
+      setPopupType(matches.length > 0 ? 'slash' : null);
+      setSelectedPopupIdx(0);
+      return;
+    }
+
+    const atMatch = before.match(/@([a-zA-Z0-9_\-./]*)$/);
+    if (atMatch) {
+      const q = atMatch[1].toLowerCase();
+      const matches = files.filter((f) => f.toLowerCase().includes(q));
+      setPopupItems(matches);
+      setPopupType(matches.length > 0 ? 'file' : null);
+      setSelectedPopupIdx(0);
+      return;
+    }
+
+    setPopupType(null);
+  }
+
+  function applyPopupSelection(item) {
+    if (popupType === 'slash') {
+      setPopupType(null);
+      executeSlashOrSend(item.cmd);
+      return;
+    }
+    if (popupType === 'file') {
+      const cursorPos = inputRef.current?.selectionStart ?? input.length;
+      const before = input.slice(0, cursorPos);
+      const after = input.slice(cursorPos);
+      const atIdx = before.lastIndexOf('@');
+      const next = before.slice(0, atIdx) + `@${item} ` + after;
+      setInput(next);
+      setPopupType(null);
+      inputRef.current?.focus();
+    }
+  }
+
+  function handleKeyDown(e) {
+    if (popupType && popupItems.length > 0) {
+      if (e.key === 'ArrowDown') {
+        e.preventDefault();
+        setSelectedPopupIdx((prev) => (prev + 1) % popupItems.length);
+        return;
+      }
+      if (e.key === 'ArrowUp') {
+        e.preventDefault();
+        setSelectedPopupIdx((prev) =>
+          prev === 0 ? popupItems.length - 1 : prev - 1
+        );
+        return;
+      }
+      if (e.key === 'Tab' || (e.key === 'Enter' && !e.shiftKey)) {
+        e.preventDefault();
+        applyPopupSelection(popupItems[selectedPopupIdx]);
+        return;
+      }
+      if (e.key === 'Escape') {
+        setPopupType(null);
+        return;
+      }
+    }
+
+    if (e.ctrlKey && e.key.toLowerCase() === 'u') {
+      e.preventDefault();
+      const pos = e.target.selectionStart ?? input.length;
+      const before = input.slice(0, pos);
+      const after = input.slice(pos);
+      if (!before) return;
+      const lastNl = before.lastIndexOf('\n');
+      let nextBefore = '';
+      if (lastNl === pos - 1) {
+        const prevNl = before.slice(0, -1).lastIndexOf('\n');
+        nextBefore = prevNl === -1 ? '' : before.slice(0, prevNl + 1);
+      } else {
+        nextBefore = lastNl === -1 ? '' : before.slice(0, lastNl + 1);
+      }
+      setInput(nextBefore + after);
+      return;
+    }
+
+    if (e.key === 'Enter' && !e.shiftKey) {
+      const pos = e.target.selectionStart ?? input.length;
+      const before = input.slice(0, pos);
+      const after = input.slice(pos);
+      if (before.endsWith('\\')) {
+        e.preventDefault();
+        setInput(before.slice(0, -1) + '\n' + after);
+        return;
+      }
+      e.preventDefault();
+      executeSlashOrSend();
+    }
+  }
+
+  if (!auth.token) {
+    return <AuthModal onSuccess={handleAuthSuccess} />;
+  }
+
+  const activeSession =
+    sessions.find((s) => s.id === activeSessionId) || sessions[0] || {};
+  const cleanSessionTitle = (
+    activeSession.title || 'New session'
+  ).replace(/[*`]/g, '');
+
+  const workspaceShortName = workspace
+    ? workspace.split('/').filter(Boolean).pop() || workspace
+    : 'Select workspace';
 
   return (
-    <div style={styles.container}>
-      {/* Top Header */}
-      <header
-        style={{
-          ...styles.header,
-          flexDirection: isMobile ? 'column' : 'row',
-          alignItems: isMobile ? 'stretch' : 'center',
-          gap: isMobile ? '10px' : '0',
-          padding: isMobile ? '10px 14px' : '12px 24px',
-        }}
-      >
-        <div style={styles.titleSection}>
-          <h2 style={styles.title}>Autonomous Coding Agent</h2>
-          <span style={styles.statusBadge}>Active</span>
-        </div>
+    <div className="claude-app-shell">
+      {/* Collapsible Left Sessions Sidebar */}
+      <Sidebar
+        isOpen={leftSidebarOpen}
+        onToggle={() => setLeftSidebarOpen((prev) => !prev)}
+        sessions={sessions}
+        activeSessionId={activeSessionId}
+        onSelectSession={setActiveSessionId}
+        onNewSession={() => handleCreateNewSession()}
+        onRefreshSessions={loadWorkspacesAndSessions}
+        userEmail={auth.email}
+        onLogout={handleLogout}
+      />
 
-        <div
-          style={{
-            ...styles.controlsGroup,
-            justifyContent: isMobile ? 'space-between' : 'flex-end',
-            width: isMobile ? '100%' : 'auto',
-          }}
-        >
-          <div style={styles.workspaceControls}>
-            <label style={styles.label}>Workspace:</label>
-            <input
-              type="text"
-              value={workspace}
-              onChange={(e) => setWorkspace(e.target.value)}
-              style={{
-                ...styles.workspaceInput,
-                width: isMobile ? '80px' : '130px',
-              }}
-            />
-            {availableWorkspaces.length > 0 && (
-              <select
-                onChange={(e) => setWorkspace(e.target.value)}
-                value={workspace}
-                style={styles.dropdown}
+      {/* Center Main Chat Column */}
+      <main className="claude-center-column">
+        {/* Clean Minimal Top Bar */}
+        <header className="claude-top-bar">
+          <div className="top-bar-left">
+            {!leftSidebarOpen && (
+              <button
+                type="button"
+                onClick={() => setLeftSidebarOpen(true)}
+                className="top-icon-btn"
+                title="Open sessions sidebar"
+                aria-label="Open sessions sidebar"
               >
-                {availableWorkspaces.map((ws) => (
-                  <option key={ws} value={ws}>
-                    {ws}
-                  </option>
-                ))}
-              </select>
+                ☰
+              </button>
+            )}
+            <span className="top-session-title">{cleanSessionTitle}</span>
+            {isTurnRunning && (
+              <span className="top-working-dot" title="Agent is generating" />
             )}
           </div>
 
-          <button
-            onClick={handleClear}
-            style={styles.clearBtn}
-            title="Clear conversation history"
-          >
-            Clear
-          </button>
-        </div>
-      </header>
+          <div className="top-bar-right">
+            <span
+              className={`device-dot-indicator ${
+                daemonStatus.connected ? 'dot-connected' : 'dot-disconnected'
+              }`}
+              title={
+                daemonStatus.connected
+                  ? 'Local device bridge connected'
+                  : 'Local device offline (run `ai-coder ui`)'
+              }
+            />
 
-      {/* Messages */}
-      <div
-        style={{
-          ...styles.messageList,
-          padding: isMobile ? '14px 10px' : '24px 32px',
-        }}
-      >
-        {messages.map((msg, index) => {
-          const isUser = msg.role === 'user';
-          return (
-            <div
-              key={index}
-              style={{
-                ...styles.messageWrapper,
-                justifyContent: isUser ? 'flex-end' : 'flex-start',
-              }}
-            >
-              <div
-                style={{
-                  ...styles.messageBubble,
-                  backgroundColor: isUser ? '#1d4ed8' : '#111827',
-                  borderColor: isUser ? '#2563eb' : '#1f2937',
-                  maxWidth: isMobile ? '92%' : isUser ? '65%' : '82%',
-                  borderTopRightRadius: isUser ? '2px' : '8px',
-                  borderTopLeftRadius: !isUser ? '2px' : '8px',
-                }}
+            {/* Files Icon Toggle with Hover Toast */}
+            <div className="tooltip-anchor">
+              <button
+                type="button"
+                onClick={() => setRightFilesOpen((prev) => !prev)}
+                className={`top-icon-btn ${
+                  rightFilesOpen ? 'top-icon-btn-active' : ''
+                }`}
+                aria-label="Files"
               >
-                <div
-                  style={{
-                    ...styles.senderLabel,
-                    textAlign: isUser ? 'right' : 'left',
-                    color: isUser ? '#bfdbfe' : '#9ca3af',
-                  }}
+                <svg
+                  width="16"
+                  height="16"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="1.8"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
                 >
-                  {isUser ? 'You' : 'Agent'}
-                </div>
-                <div style={styles.messageContent}>
-                  {isUser ? (
-                    msg.content
-                  ) : (
-                    <ReactMarkdown
-                      remarkPlugins={[remarkGfm]}
-                      components={{
-                        table: ({ children }) => (
-                          <div style={styles.tableContainer}>
-                            <table style={styles.table}>{children}</table>
-                          </div>
-                        ),
-                        thead: ({ children }) => (
-                          <thead style={styles.thead}>{children}</thead>
-                        ),
-                        tbody: ({ children }) => <tbody>{children}</tbody>,
-                        tr: ({ children }) => <tr style={styles.tr}>{children}</tr>,
-                        th: ({ children }) => <th style={styles.th}>{children}</th>,
-                        td: ({ children }) => <td style={styles.td}>{children}</td>,
-                        code({ children, ...props }) {
-                          const content = String(children).replace(/\n$/, '');
-                          const isMultiLine = content.includes('\n');
-                          return !isMultiLine ? (
-                            <code style={styles.inlineCode} {...props}>
-                              {content}
-                            </code>
-                          ) : (
-                            <pre style={styles.codeBlock}>
-                              <code>{content}</code>
-                            </pre>
-                          );
-                        },
-                        p: ({ children }) => <p style={styles.mdP}>{children}</p>,
-                        ul: ({ children }) => <ul style={styles.mdUl}>{children}</ul>,
-                        ol: ({ children }) => <ol style={styles.mdOl}>{children}</ol>,
-                        li: ({ children }) => <li style={styles.mdLi}>{children}</li>,
-                      }}
-                    >
-                      {msg.content}
-                    </ReactMarkdown>
-                  )}
-                </div>
-              </div>
+                  <path d="M22 19a2 2 0 0 1-2 2H4a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h5l2 3h9a2 2 0 0 1 2 2z" />
+                </svg>
+              </button>
+              <span className="hover-toast">Files</span>
             </div>
-          );
-        })}
-
-        {loading && (
-          <div style={styles.loadingWrapper}>
-            <span style={styles.loadingText}>
-              Agent working in <code>/{workspace}</code>...
-            </span>
           </div>
-        )}
-        <div ref={messagesEndRef} />
-      </div>
+        </header>
 
-      {/* Input Section & File Picker Overlay */}
-      <div
-        style={{
-          ...styles.inputArea,
-          padding: isMobile ? '0 8px' : '0 16px',
-        }}
-      >
-        {showPicker && (
-          <div style={styles.pickerPopup}>
-            <div style={styles.pickerHeader}>Files in /{workspace}</div>
-            {fileSuggestions.map((file, idx) => (
-              <div
-                key={file}
-                onClick={() => selectFile(file)}
-                style={{
-                  ...styles.pickerItem,
-                  backgroundColor:
-                    idx === selectedPickerIdx ? '#334155' : 'transparent',
-                }}
-              >
-                📄 {file}
-              </div>
-            ))}
+        {/* Empty State or Chat Dialogue Stream */}
+        {messages.length === 0 && !activeCard ? (
+          <div className="claude-empty-hero">
+            <div className="hero-card">
+              <div className="hero-mascot">▛▞▜</div>
+              <h2 className="hero-heading">What would you like to build?</h2>
+              <p className="hero-sub">
+                Type <code>/</code> for commands or <code>@</code> to reference files in{' '}
+                <span className="mono">{workspaceShortName}</span>
+              </p>
+            </div>
           </div>
-        )}
-
-        <form
-          onSubmit={handleSend}
-          style={{
-            ...styles.inputContainer,
-            padding: isMobile ? '8px 4px' : '12px 16px',
-            gap: isMobile ? '6px' : '10px',
-          }}
-        >
-          <input
-            ref={inputRef}
-            type="text"
-            value={input}
-            onChange={handleInputChange}
-            onKeyDown={handleKeyDown}
-            placeholder={
-              isMobile
-                ? `Type prompt or '@' in /${workspace}...`
-                : `Type a prompt, or '@' to reference files in /${workspace}...`
+        ) : (
+          <MessageStream
+            messages={messages}
+            onToggleExpand={(idx) =>
+              setMessages((prev) =>
+                prev.map((m, i) =>
+                  i === idx ? { ...m, isExpanded: !m.isExpanded } : m
+                )
+              )
             }
-            style={styles.input}
-            disabled={loading}
+            activeCard={activeCard}
+            onSelectCardOption={handleSelectCardOption}
+            onCancelCard={handleCancelCard}
+            onCancelTurn={handleCancelTurn}
+            messagesEndRef={messagesEndRef}
           />
-          <button
-            type="submit"
-            disabled={loading || !input.trim()}
-            style={{
-              ...styles.button,
-              opacity: loading || !input.trim() ? 0.6 : 1,
-              padding: isMobile ? '8px 14px' : '10px 18px',
-            }}
-          >
-            Send
-          </button>
-        </form>
-      </div>
+        )}
+
+        {/* Bottom Chat Composer + Active Workspace Selector Below It */}
+        <footer className="claude-composer-region">
+          <div className="claude-composer-inner">
+            {popupType && popupItems.length > 0 && (
+              <div className="claude-autocomplete-menu mono">
+                <div className="popup-section-label">
+                  {popupType === 'slash' ? 'Commands' : 'Workspace files'}
+                </div>
+                {popupItems.map((item, idx) => {
+                  const isSel = idx === selectedPopupIdx;
+                  const key = popupType === 'slash' ? item.cmd : item;
+                  return (
+                    <div
+                      key={key}
+                      onClick={() => applyPopupSelection(item)}
+                      className={`claude-popup-row ${
+                        isSel ? 'claude-popup-row-active' : ''
+                      }`}
+                    >
+                      {popupType === 'slash' ? (
+                        <>
+                          <span className="popup-cmd-name">{item.cmd}</span>
+                          <span className="popup-cmd-desc">{item.desc}</span>
+                        </>
+                      ) : (
+                        <span>📄 {item}</span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
+
+            {/* Rounded Chat Input Box */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                executeSlashOrSend();
+              }}
+              className="claude-input-box"
+            >
+              <textarea
+                ref={inputRef}
+                rows={2}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                disabled={isTurnRunning}
+                placeholder="Describe a task or ask a question..."
+                className="claude-textarea"
+              />
+              <div className="claude-input-actions">
+                {isTurnRunning ? (
+                  <button
+                    type="button"
+                    onClick={handleCancelTurn}
+                    className="claude-stop-btn"
+                    title="Stop generation"
+                  >
+                    ■
+                  </button>
+                ) : (
+                  <button
+                    type="submit"
+                    disabled={!input.trim()}
+                    className="claude-send-btn"
+                    title="Send message"
+                  >
+                    ↑
+                  </button>
+                )}
+              </div>
+            </form>
+
+            {/* Active Workspace Selector Below the Chatbox (Claude Style) */}
+            <div className="below-chat-workspace-bar">
+              <div className="ws-selector-anchor">
+                <button
+                  type="button"
+                  onClick={() => setWsMenuOpen((prev) => !prev)}
+                  className="ws-pill-btn"
+                  title={workspace}
+                >
+                  <span className="ws-icon">❐</span>
+                  <span className="ws-name">{workspaceShortName}</span>
+                  <span className="ws-caret">▾</span>
+                </button>
+
+                {wsMenuOpen && (
+                  <div className="ws-popover-menu">
+                    <div className="ws-popover-header">Switch workspace</div>
+                    {availableWorkspaces.map((ws) => {
+                      const label = ws.split('/').filter(Boolean).pop() || ws;
+                      const isCurr = ws === workspace;
+                      return (
+                        <button
+                          key={ws}
+                          type="button"
+                          onClick={() => {
+                            setWorkspace(ws);
+                            setWsMenuOpen(false);
+                          }}
+                          className={`ws-popover-item ${
+                            isCurr ? 'ws-popover-item-active' : ''
+                          }`}
+                          title={ws}
+                        >
+                          <div className="ws-item-main">
+                            <span>❐ {label}</span>
+                            {isCurr && <span>✓</span>}
+                          </div>
+                          <div className="ws-item-path mono">{ws}</div>
+                        </button>
+                      );
+                    })}
+                    <div className="ws-popover-divider" />
+                    <button
+                      type="button"
+                      onClick={() => openFolderBrowser(workspace)}
+                      className="ws-browse-device-btn"
+                    >
+                      📂 Browse folder on device...
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <span className="ws-full-path-hint mono">{workspace}</span>
+            </div>
+          </div>
+        </footer>
+      </main>
+
+      {/* Collapsible Right-Side Files Tree & Content Preview Split Panel */}
+      <FilesDrawer
+        isOpen={rightFilesOpen}
+        onClose={() => setRightFilesOpen(false)}
+        workspace={workspace}
+        files={files}
+        onAttachFile={(fname) => {
+          setInput((prev) => (prev ? `${prev} @${fname} ` : `@${fname} `));
+          inputRef.current?.focus();
+        }}
+      />
+
+      {/* Device Folder Browser Modal */}
+      {browserOpen && (
+        <div
+          className="folder-modal-backdrop"
+          onClick={() => setBrowserOpen(false)}
+        >
+          <div className="folder-modal" onClick={(e) => e.stopPropagation()}>
+            <div className="folder-modal-header">
+              <span className="mono">📂 Select Folder on Device</span>
+              <button
+                type="button"
+                onClick={() => setBrowserOpen(false)}
+                className="sidebar-mini-btn"
+              >
+                ✕
+              </button>
+            </div>
+
+            <div className="folder-current-bar mono">
+              <span className="truncate">{browsePath || '/'}</span>
+              {parentPath && (
+                <button
+                  type="button"
+                  onClick={() => openFolderBrowser(parentPath)}
+                  className="up-dir-btn mono"
+                >
+                  ↑ Up
+                </button>
+              )}
+            </div>
+
+            <div className="folder-list-box">
+              {browseLoading ? (
+                <div className="sidebar-empty-note mono">
+                  Scanning directories...
+                </div>
+              ) : subFolders.length === 0 ? (
+                <div className="sidebar-empty-note mono">
+                  No subdirectories found.
+                </div>
+              ) : (
+                subFolders.map((folder) => (
+                  <button
+                    key={folder.path}
+                    type="button"
+                    onClick={() => openFolderBrowser(folder.path)}
+                    className="folder-row-btn mono"
+                  >
+                    <span>📁 {folder.name}</span>
+                    <span className="folder-enter-hint">Open →</span>
+                  </button>
+                ))
+              )}
+            </div>
+
+            <div className="folder-modal-footer">
+              <button
+                type="button"
+                onClick={() => setBrowserOpen(false)}
+                className="card-cancel-btn"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  if (browsePath) {
+                    setWorkspace(browsePath);
+                  }
+                  setBrowserOpen(false);
+                }}
+                className="primary-btn"
+              >
+                Select Folder
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
-
-const styles = {
-  container: {
-    display: 'flex',
-    flexDirection: 'column',
-    height: '100dvh',
-    width: '100%',
-    backgroundColor: '#0b0f19',
-    color: '#e2e8f0',
-    textAlign: 'left',
-    fontFamily:
-      '-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif',
-    overflow: 'hidden',
-  },
-  header: {
-    backgroundColor: '#111827',
-    borderBottom: '1px solid #1f2937',
-    display: 'flex',
-    justifyContent: 'space-between',
-    flexShrink: 0,
-  },
-  titleSection: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  },
-  title: {
-    margin: 0,
-    fontSize: '1rem',
-    fontWeight: '700',
-    letterSpacing: '-0.025em',
-    color: '#f9fafb',
-    fontFamily: 'monospace',
-  },
-  statusBadge: {
-    fontSize: '0.75rem',
-    color: '#10b981',
-    backgroundColor: 'rgba(16, 185, 129, 0.1)',
-    padding: '2px 8px',
-    borderRadius: '4px',
-    border: '1px solid rgba(16, 185, 129, 0.25)',
-  },
-  controlsGroup: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '12px',
-  },
-  workspaceControls: {
-    display: 'flex',
-    alignItems: 'center',
-    gap: '8px',
-  },
-  label: {
-    color: '#9ca3af',
-    fontSize: '0.8rem',
-  },
-  workspaceInput: {
-    backgroundColor: '#1f2937',
-    border: '1px solid #374151',
-    borderRadius: '4px',
-    color: '#f9fafb',
-    padding: '4px 8px',
-    fontSize: '0.8rem',
-    fontFamily: 'monospace',
-    outline: 'none',
-  },
-  dropdown: {
-    backgroundColor: '#1f2937',
-    border: '1px solid #374151',
-    borderRadius: '4px',
-    color: '#9ca3af',
-    padding: '4px 8px',
-    fontSize: '0.8rem',
-    outline: 'none',
-  },
-  clearBtn: {
-    backgroundColor: '#1f2937',
-    color: '#9ca3af',
-    border: '1px solid #374151',
-    borderRadius: '4px',
-    padding: '4px 10px',
-    fontSize: '0.8rem',
-    cursor: 'pointer',
-    fontWeight: '500',
-  },
-  messageList: {
-    flex: 1,
-    overflowY: 'auto',
-    display: 'flex',
-    flexDirection: 'column',
-    gap: '16px',
-    width: '100%',
-    margin: 0,
-    boxSizing: 'border-box',
-  },
-  messageWrapper: {
-    display: 'flex',
-    width: '100%',
-    padding: '0 4px',
-    boxSizing: 'border-box',
-  },
-  messageBubble: {
-    width: 'fit-content',
-    padding: '12px 16px',
-    borderRadius: '10px',
-    border: '1px solid #1f2937',
-    textAlign: 'left',
-    boxShadow: '0 2px 8px rgba(0, 0, 0, 0.3)',
-  },
-  senderLabel: {
-    fontSize: '0.72rem',
-    fontWeight: '700',
-    letterSpacing: '0.05em',
-    textTransform: 'uppercase',
-    marginBottom: '6px',
-  },
-  messageContent: {
-    textAlign: 'left',
-    lineHeight: '1.65',
-    fontSize: '0.92rem',
-    color: '#e5e7eb',
-    wordBreak: 'break-word',
-  },
-  tableContainer: {
-    width: '100%',
-    overflowX: 'auto',
-    margin: '14px 0',
-    borderRadius: '6px',
-    border: '1px solid #374151',
-  },
-  table: {
-    width: '100%',
-    borderCollapse: 'collapse',
-    fontSize: '0.86rem',
-    textAlign: 'left',
-    backgroundColor: '#0b0f19',
-  },
-  thead: {
-    backgroundColor: '#1f2937',
-  },
-  th: {
-    padding: '10px 14px',
-    fontWeight: '600',
-    color: '#93c5fd',
-    borderBottom: '2px solid #374151',
-    borderRight: '1px solid #1f2937',
-    whiteSpace: 'nowrap',
-    textAlign: 'left',
-  },
-  tr: {
-    borderBottom: '1px solid #1e293b',
-  },
-  td: {
-    padding: '10px 14px',
-    verticalAlign: 'top',
-    color: '#e2e8f0',
-    borderRight: '1px solid #1e293b',
-    lineHeight: '1.5',
-    textAlign: 'left',
-  },
-  codeBlock: {
-    padding: '12px 16px',
-    overflowX: 'auto',
-    fontSize: '0.85rem',
-    fontFamily: 'ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace',
-    color: '#e5e7eb',
-    margin: 0,
-    backgroundColor: '#030712',
-    borderRadius: '6px',
-    border: '1px solid #1f2937',
-    textAlign: 'left',
-  },
-  inlineCode: {
-    backgroundColor: '#1e293b',
-    color: '#60a5fa',
-    padding: '2px 6px',
-    borderRadius: '4px',
-    fontSize: '0.84rem',
-    fontFamily: 'ui-monospace, monospace',
-    display: 'inline',
-  },
-  loadingWrapper: {
-    alignSelf: 'flex-start',
-    padding: '8px 16px',
-  },
-  loadingText: {
-    fontSize: '0.82rem',
-    color: '#9ca3af',
-    fontFamily: 'monospace',
-  },
-  inputArea: {
-    position: 'relative',
-    backgroundColor: '#111827',
-    borderTop: '1px solid #1f2937',
-    width: '100%',
-    margin: 0,
-    flexShrink: 0,
-    boxSizing: 'border-box',
-  },
-  pickerPopup: {
-    position: 'absolute',
-    bottom: '100%',
-    left: '16px',
-    right: '16px',
-    maxHeight: '180px',
-    overflowY: 'auto',
-    backgroundColor: '#111827',
-    border: '1px solid #374151',
-    borderRadius: '6px 6px 0 0',
-    boxShadow: '0 -4px 12px rgba(0, 0, 0, 0.4)',
-    zIndex: 10,
-  },
-  pickerHeader: {
-    padding: '6px 12px',
-    fontSize: '0.72rem',
-    color: '#9ca3af',
-    borderBottom: '1px solid #374151',
-    fontFamily: 'monospace',
-  },
-  pickerItem: {
-    padding: '6px 12px',
-    fontSize: '0.82rem',
-    color: '#f9fafb',
-    cursor: 'pointer',
-    fontFamily: 'monospace',
-  },
-  inputContainer: {
-    display: 'flex',
-    boxSizing: 'border-box',
-    width: '100%',
-  },
-  input: {
-    flex: 1,
-    padding: '10px 14px',
-    borderRadius: '6px',
-    border: '1px solid #374151',
-    backgroundColor: '#030712',
-    color: '#f9fafb',
-    outline: 'none',
-    fontSize: '0.9rem',
-    fontFamily: 'inherit',
-    minWidth: 0,
-  },
-  button: {
-    borderRadius: '6px',
-    backgroundColor: '#2563eb',
-    color: '#ffffff',
-    border: 'none',
-    fontWeight: '600',
-    cursor: 'pointer',
-    fontSize: '0.85rem',
-    flexShrink: 0,
-  },
-  mdP: {
-    margin: '0 0 10px 0',
-    lineHeight: '1.6',
-    textAlign: 'left',
-  },
-  mdUl: {
-    margin: '0 0 10px 0',
-    paddingLeft: '22px',
-    textAlign: 'left',
-  },
-  mdOl: {
-    margin: '0 0 10px 0',
-    paddingLeft: '22px',
-    textAlign: 'left',
-  },
-  mdLi: {
-    marginBottom: '6px',
-    lineHeight: '1.5',
-    textAlign: 'left',
-  },
-};

@@ -1,31 +1,39 @@
 import os
 from pathlib import Path
+from typing import Optional
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
 ENV_FILE_PATH = PROJECT_ROOT / ".env"
 
+
 class Settings(BaseSettings):
     """
     Application configuration loaded from environment variables and .env file.
     Validates types and fails immediately on startup if required variables are missing.
     """
-    # Required setting - app will not boot if this is missing from .env
+    # Required settings
     GROQ_API_KEY: str
+    DATABASE_URL: str
 
-    # Optional defaults with strong types
-    MODEL_NAME: str = "openai/gpt-oss-120b"
+    # Optional LLM & workspace settings
+    MODEL_NAME: str = "qwen/qwen3.8-27b"
     MAX_ITERATIONS: int = 8
     WORKSPACE_DIR: str = os.getcwd() or "./workspace"
 
-    # Configuration to instruct Pydantic to read from a local .env file
+    # Optional SMTP Email Settings for OTP delivery (falls back to console log in local dev)
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USER: [str] = None
+    SMTP_PASSWORD: [str] = None
+    SMTP_FROM_EMAIL: [str] = None
+
     model_config = SettingsConfigDict(
-        env_file= ENV_FILE_PATH,
+        env_file=ENV_FILE_PATH,
         env_file_encoding="utf-8",
-        extra="ignore"  # Ignore extra unrelated env variables safely
+        extra="ignore",
     )
 
 
-# Singleton instance to be imported across modules
 settings = Settings()
