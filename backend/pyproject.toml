@@ -17,6 +17,8 @@ dependencies = [
     "pytest",
     "pytest-mock",
     "pytest-cov",
+    "pytest-asyncio",
+    "aiosqlite",
     "httpx",
     "slowapi>=0.1.9",
     "sqlalchemy[asyncio]>=2.0.0",

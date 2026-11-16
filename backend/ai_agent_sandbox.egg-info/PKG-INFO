@@ -12,6 +12,8 @@ Requires-Dist: uvicorn
 Requires-Dist: pytest
 Requires-Dist: pytest-mock
 Requires-Dist: pytest-cov
+Requires-Dist: pytest-asyncio
+Requires-Dist: aiosqlite
 Requires-Dist: httpx
 Requires-Dist: slowapi>=0.1.9
 Requires-Dist: sqlalchemy[asyncio]>=2.0.0
@@ -21,4 +23,3 @@ Requires-Dist: pyjwt>=2.8.0
 Requires-Dist: passlib[bcrypt]>=1.7.4
 Requires-Dist: bcrypt>=4.0.0
 Requires-Dist: websockets>=12.0
-Requires-Dist: path

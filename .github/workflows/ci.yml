@@ -1,104 +1,88 @@
-name: CI Suite
+name: CI Suiteon:
+push:
+branches: [ "**" ]
+pull_request:
+branches: [ "main", "master" ]
+workflow_dispatch:concurrency:
+group: ${{ github.workflow }}-${{ github.ref }}
+cancel-in-progress: truejobs:=========================================================================Backend Quality Gate: Linting, Security Contracts & Integration Tests=========================================================================backend:
+name: Backend (Python 3.12)
+runs-on: ubuntu-latest
+defaults:
+run:
+working-directory: backendsteps:
+  - name: Checkout Source Code
+    uses: actions/checkout@v4
 
-on:
-  push:
-    branches: [ "main", "master" ]
-  pull_request:
-    branches: [ "main", "master" ]
-  workflow_dispatch:
+  - name: Set up Python 3.12
+    uses: actions/setup-python@v5
+    with:
+      python-version: "3.12"
+      cache: "pip"
+      cache-dependency-path: backend/pyproject.toml
 
-concurrency:
-  group: ${{ github.workflow }}-${{ github.ref }}
-  cancel-in-progress: true
+  - name: Install Dependencies
+    run: |
+      python -m pip install --upgrade pip
+      pip install -e .
+      pip install pylint pytest pytest-cov pytest-asyncio aiosqlite
 
-jobs:
-  # =========================================================================
-  # Backend Quality Gate: Linting, Security Contracts & Integration Tests
-  # =========================================================================
-  backend:
-    name: Backend (Python 3.12)
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: backend
+  - name: Run Pylint Check
+    run: |
+      pylint --rcfile=../.pylintrc app tests
 
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
+  - name: Run Pytest Integration & Contract Tests
+    env:
+      GROQ_API_KEY: "gsk_dummy_mock_key_for_testing"
+      DATABASE_URL: "sqlite+aiosqlite:///:memory:"
+      SECRET_KEY: "ci_dummy_jwt_secret_key"
+      WORKSPACE_DIR: "./workspace"
+      PYTHONPATH: .
+      SMTP_USER: "user@gmail.com"
+      SMTP_PASSWORD: "smtp key"
+      SMTP_FROM_EMAIL: "user@gmail.com"
+    run: |
+      pytest -v tests/ --cov=app --cov-report=term-missing
+=========================================================================Frontend Quality Gate: Linting & Vitest Component Tests=========================================================================frontend:
+name: Frontend
+runs-on: ubuntu-latest
+defaults:
+run:
+working-directory: frontendsteps:
+  - name: Checkout Source Code
+    uses: actions/checkout@v4
 
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-          cache: "pip"
+  - name: Set up Node.js 24
+    uses: actions/setup-node@v4
+    with:
+      node-version: 24
+      cache: "npm"
+      cache-dependency-path: frontend/package-lock.json
 
-      - name: Install Dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -e .
-          pip install pylint pytest pytest-cov
+  - name: Install Dependencies
+    run: |
+      npm install
 
-      - name: Run Pylint Check
-        run: |
-          pylint --rcfile=../.pylintrc app tests
+  - name: Run ESLint
+    run: |
+      npm run lint
 
-      - name: Run Pytest Integration & Contract Tests
-        env:
-          GROQ_API_KEY: "gsk_dummy_mock_key_for_testing"
-          WORKSPACE_DIR: "./workspace"
-          PYTHONPATH: .
-        run: |
-          pytest -v tests/ --cov=app --cov-report=term-missing
+  - name: Run Vitest Suite
+    run: |
+      npm test -- --run
 
-  # =========================================================================
-  # Frontend Quality Gate: Linting & Vitest Component Tests
-  # =========================================================================
-  frontend:
-    name: Frontend
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
+  - name: Verify Build
+    run: |
+      npm run build
+=========================================================================Container Quality Gate: Ensure Docker Compose Stack Builds Cleanly=========================================================================docker-build:
+name: Docker Stack Build Check
+needs: [backend, frontend]
+runs-on: ubuntu-lateststeps:
+  - name: Checkout Source Code
+    uses: actions/checkout@v4
 
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
+  - name: Validate Docker Compose Configuration
+    run: docker compose config
 
-      - name: Set up Node.js 24
-        uses: actions/setup-node@v4
-        with:
-          node-version: 24
-
-      - name: Install Dependencies
-        run: |
-          npm install
-
-      - name: Run ESLint
-        run: |
-          npm run lint
-
-      - name: Run Vitest Suite
-        run: |
-          npm test -- --run
-
-      - name: Verify Build
-        run: |
-          npm run build
-
-  # =========================================================================
-  # Container Quality Gate: Ensure Docker Compose Stack Builds Cleanly
-  # =========================================================================
-  docker-build:
-    name: Docker Stack Build Check
-    needs: [backend, frontend]
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Checkout Source Code
-        uses: actions/checkout@v4
-
-      - name: Validate Docker Compose Configuration
-        run: docker compose config
-
-      - name: Build Docker Stack
-        run: docker compose build
+  - name: Build Docker Stack
+    run: docker compose build

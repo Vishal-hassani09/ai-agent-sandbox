@@ -1,116 +1,102 @@
-import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { render, screen, fireEvent, waitFor } from '@testing-library/react';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import App from './App';
+import { apiClient } from './api/client';
 
-describe('App Component', () => {
+describe('AI Coder Web Studio & Multi-Step Registration', () => {
   beforeEach(() => {
-    vi.clearAllMocks();
-
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation((url) => {
-        const urlStr = String(url);
-        if (urlStr.includes('/api/workspace/files') || urlStr.includes('/files')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => ({
-              files: ['backend/app/main.py', 'pyproject.toml'],
-            }),
-          });
-        }
-        return Promise.resolve({
-          ok: true,
-          json: async () => ({
-            status: 'success',
-            response: 'Here is your completed feature:\n\n```python\nprint("hello")\n```',
-            session_id: 'test-session',
-          }),
-        });
-      })
-    );
+    localStorage.clear();
+    sessionStorage.clear();
+    vi.restoreAllMocks();
   });
 
-  it('renders initial UI elements and greeting message', () => {
-    render(<App />);
-    expect(screen.getByText(/Autonomous Coding Agent/i)).toBeInTheDocument();
-    expect(screen.getByText(/Hello! Type/i)).toBeInTheDocument();
-    expect(
-      screen.getByPlaceholderText(/Type a prompt, or '@' to reference files/i)
-    ).toBeInTheDocument();
-  });
-
-  it('submits a user prompt, renders markdown response, and refocuses input', async () => {
-    render(<App />);
-    const input = screen.getByPlaceholderText(/Type a prompt, or '@' to reference files/i);
-    const sendButton = screen.getByRole('button', { name: /Send/i });
-
-    fireEvent.change(input, { target: { value: 'Create a hello world script' } });
-    fireEvent.click(sendButton);
-
-    expect(screen.getByText('Create a hello world script')).toBeInTheDocument();
-
-    await waitFor(() => {
-      expect(screen.getByText(/Here is your completed feature:/i)).toBeInTheDocument();
+  it('completes the 3-step Email -> OTP -> Password registration wizard', async () => {
+    vi.spyOn(apiClient, 'checkHealth').mockResolvedValue(true);
+    const genOtpSpy = vi.spyOn(apiClient, 'generateOtp').mockResolvedValue({
+      status: 'otp_sent',
+      message: 'Verification code sent to dev@example.com.',
+      otp_attempts: 1,
+      captcha_resends: 0,
+    });
+    const verifyOtpSpy = vi.spyOn(apiClient, 'verifyOtp').mockResolvedValue({
+      verified: true,
+      verification_token: 'verified-jwt-123',
+      message: 'Email verified!',
+    });
+    const registerSpy = vi.spyOn(apiClient, 'register').mockResolvedValue({
+      access_token: 'session-jwt-999',
+      email: 'dev@example.com',
+      user_id: 'user-1',
     });
 
-    expect(document.activeElement).toBe(input);
-  });
+    vi.spyOn(apiClient, 'getDaemonStatus').mockResolvedValue({ connected: true, cwd: '/workspace' });
+    vi.spyOn(apiClient, 'listServerWorkspaces').mockResolvedValue(['/workspace']);
+    vi.spyOn(apiClient, 'listWorkspaceFiles').mockResolvedValue(['README.md']);
+    vi.spyOn(apiClient, 'listSessions').mockResolvedValue([
+      { id: 'sess-1', title: 'New session', workspace_path: '/workspace' },
+    ]);
+    vi.spyOn(apiClient, 'getSessionDetail').mockResolvedValue({ id: 'sess-1', messages: [] });
 
-  it('handles backend API errors gracefully in the chat feed', async () => {
-    vi.stubGlobal(
-      'fetch',
-      vi.fn().mockImplementation((url) => {
-        const urlStr = String(url);
-        if (urlStr.includes('/api/workspace/files') || urlStr.includes('/files')) {
-          return Promise.resolve({
-            ok: true,
-            json: async () => ({ files: ['backend/app/main.py'] }),
-          });
-        }
-        return Promise.resolve({
-          ok: false,
-          status: 500,
-          json: async () => ({ detail: 'Internal sandboxing execution error' }),
-        });
-      })
+    render(<App />);
+
+    // Switch from Login to Register
+    fireEvent.click(screen.getByRole('button', { name: /register/i }));
+    expect(screen.getByText(/verify your email/i)).toBeInTheDocument();
+
+    // Step 1: Enter email and request OTP
+    fireEvent.change(screen.getByPlaceholderText(/developer@example.com/i), {
+      target: { value: 'dev@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send verification otp/i }));
+
+    await waitFor(() => expect(genOtpSpy).toHaveBeenCalledWith('dev@example.com', false));
+    expect(await screen.findByText(/enter verification code/i)).toBeInTheDocument();
+
+    // Step 2: Enter 6-digit OTP
+    fireEvent.change(screen.getByPlaceholderText('123456'), {
+      target: { value: '654321' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /verify otp & continue/i }));
+
+    await waitFor(() => expect(verifyOtpSpy).toHaveBeenCalledWith('dev@example.com', '654321'));
+    expect(await screen.findByText(/set account password/i)).toBeInTheDocument();
+
+    // Step 3: Set password and complete registration
+    fireEvent.change(screen.getByPlaceholderText(/at least 6 characters/i), {
+      target: { value: 'Secret123' },
+    });
+    fireEvent.change(screen.getByPlaceholderText(/re-enter password/i), {
+      target: { value: 'Secret123' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /create account & launch studio/i }));
+
+    await waitFor(() =>
+      expect(registerSpy).toHaveBeenCalledWith('dev@example.com', 'Secret123', 'verified-jwt-123')
     );
 
-    render(<App />);
-    const input = screen.getByPlaceholderText(/Type a prompt, or '@' to reference files/i);
-    const sendButton = screen.getByRole('button', { name: /Send/i });
+    // Studio UI is now mounted
+    expect(await screen.findByText(/what would you like to build\?/i)).toBeInTheDocument();
+  });
 
-    fireEvent.change(input, { target: { value: 'Trigger backend error' } });
-    fireEvent.click(sendButton);
-
-    await waitFor(() => {
-      expect(
-        screen.getByText(/Internal sandboxing execution error/i)
-      ).toBeInTheDocument();
+  it('displays SVG CAPTCHA when generateOtp returns captcha_required', async () => {
+    vi.spyOn(apiClient, 'checkHealth').mockResolvedValue(true);
+    vi.spyOn(apiClient, 'generateOtp').mockResolvedValue({
+      status: 'captcha_required',
+      message: 'Please complete the CAPTCHA challenge.',
+      otp_attempts: 4,
+      captcha_resends: 0,
+      captcha_id: 'cap-1',
+      captcha_svg: '<svg data-testid="captcha-svg"><text>AB12C</text></svg>',
     });
-  });
 
-  it('updates input value on typing and enables submit button', () => {
     render(<App />);
-    const input = screen.getByPlaceholderText(/Type a prompt, or '@' to reference files/i);
-    const sendButton = screen.getByRole('button', { name: /Send/i });
+    fireEvent.click(screen.getByRole('button', { name: /register/i }));
+    fireEvent.change(screen.getByPlaceholderText(/developer@example.com/i), {
+      target: { value: 'dev@example.com' },
+    });
+    fireEvent.click(screen.getByRole('button', { name: /send verification otp/i }));
 
-    expect(sendButton).toBeDisabled();
-
-    fireEvent.change(input, { target: { value: 'Refactor test suite' } });
-
-    expect(input.value).toBe('Refactor test suite');
-    expect(sendButton).not.toBeDisabled();
-  });
-
-  it('clears conversation history when Clear button is clicked', () => {
-    render(<App />);
-    const input = screen.getByPlaceholderText(/Type a prompt, or '@' to reference files/i);
-
-    fireEvent.change(input, { target: { value: 'Temporary message' } });
-    const clearButton = screen.getByRole('button', { name: /Clear/i });
-
-    fireEvent.click(clearButton);
-
-    expect(screen.getByText(/Hello! Type/i)).toBeInTheDocument();
+    expect(await screen.findByText(/security verification required/i)).toBeInTheDocument();
+    expect(screen.getByTestId('captcha-svg')).toBeInTheDocument();
   });
 });
