@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import ReactMarkdown from 'react-markdown';
 import remarkGfm from 'remark-gfm';
 import { apiClient } from '../api/client';
@@ -16,10 +16,12 @@ export default function FilesDrawer({
   const [fileLoading, setFileLoading] = useState(false);
   const [viewMode, setViewMode] = useState('preview'); // 'preview' | 'code'
 
-  useEffect(() => {
+  const [prevWorkspace, setPrevWorkspace] = useState(workspace);
+  if (workspace !== prevWorkspace) {
+    setPrevWorkspace(workspace);
     setActiveFile(null);
     setFileContent('');
-  }, [workspace]);
+  }
 
   if (!isOpen) {
     return null;
