@@ -1,8 +1,18 @@
 const RAW_ENV_API_URL = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
-const ENV_API_URL =
-  RAW_ENV_API_URL && !/^https?:\/\//i.test(RAW_ENV_API_URL)
-    ? `https://${RAW_ENV_API_URL}`
-    : RAW_ENV_API_URL;
+
+function normalizeApiUrl(raw) {
+  if (!raw) return '';
+  // If Render's `fromService -> property: host` injected just the service slug (no dot, e.g. "ai-agent-sandbox-backend-dgcj")
+  if (!/^https?:\/\//i.test(raw) && !raw.includes('.')) {
+    return `https://${raw}.onrender.com`;
+  }
+  if (!/^https?:\/\//i.test(raw)) {
+    return `https://${raw}`;
+  }
+  return raw;
+}
+
+const ENV_API_URL = normalizeApiUrl(RAW_ENV_API_URL);
 
 function isLocalOrCloudShell() {
   if (typeof window === 'undefined') return false;
