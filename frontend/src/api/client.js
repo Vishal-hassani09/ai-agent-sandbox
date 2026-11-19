@@ -1,4 +1,8 @@
-const ENV_API_URL = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+const RAW_ENV_API_URL = (import.meta.env.VITE_API_URL || '').trim().replace(/\/$/, '');
+const ENV_API_URL =
+  RAW_ENV_API_URL && !/^https?:\/\//i.test(RAW_ENV_API_URL)
+    ? `https://${RAW_ENV_API_URL}`
+    : RAW_ENV_API_URL;
 
 function isLocalOrCloudShell() {
   if (typeof window === 'undefined') return false;

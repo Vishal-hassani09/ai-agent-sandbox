@@ -59,7 +59,7 @@ services:
         fromService:
           type: web
           name: ai-agent-sandbox-backend
-          property: url
+          property: host
     routes:
       - type: rewrite
         source: /*
