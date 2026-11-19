@@ -3,12 +3,14 @@ requires = ["setuptools>=61.0"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "ai-agent-sandbox"
+name = "ai-coder-sandbox"
 version = "0.1.0"
+description = "Autonomous Coding Agent — Terminal CLI & Web Studio Device Bridge"
+requires-python = ">=3.11"
 dependencies = [
     "groq",
     "python-dotenv",
-    "pydantic",
+    "pydantic[email]",
     "pydantic-settings",
     "rich",
     "prompt_toolkit",
@@ -21,7 +23,6 @@ dependencies = [
     "aiosqlite",
     "httpx",
     "slowapi>=0.1.9",
-    "pydantic[email]",
     "sqlalchemy[asyncio]>=2.0.0",
     "asyncpg>=0.29.0",
     "greenlet>=3.0.0",
@@ -32,6 +33,7 @@ dependencies = [
 ]
 
 [project.scripts]
+ai-coder = "app.cli:main"
 agent = "app.cli:main"
 
 [tool.setuptools.packages.find]
