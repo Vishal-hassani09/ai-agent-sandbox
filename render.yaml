@@ -1,6 +1,6 @@
 services:
   # =========================================================================
-  # Backend API Service (FastAPI)
+  # 1. Backend API Service (FastAPI + Docker)
   # =========================================================================
   - type: web
     name: ai-agent-sandbox-backend
@@ -8,26 +8,59 @@ services:
     dockerfilePath: backend/Dockerfile
     dockerContext: backend
     plan: free
-    region: frankfurt
+    region: singapore
+    healthCheckPath: /api/health
     envVars:
+      # Required Secrets (Render will prompt you to enter these on Blueprint apply)
+      - key: DATABASE_URL
+        sync: false
       - key: GROQ_API_KEY
         sync: false
+
+      # Auto-generated cryptographic secrets for JWT signing
+      - key: JWT_SECRET_KEY
+        generateValue: true
+      - key: SECRET_KEY
+        generateValue: true
+
+      # Agent & Workspace Runtime Configuration
+      - key: MODEL_NAME
+        value: qwen/qwen3.8-27b
+      - key: MAX_ITERATIONS
+        value: "16"
       - key: WORKSPACE_DIR
         value: /app/workspace
 
+      # SMTP Email Configuration for Registration OTP Delivery
+      - key: SMTP_HOST
+        value: smtp.gmail.com
+      - key: SMTP_PORT
+        value: "587"
+      - key: SMTP_USER
+        sync: false
+      - key: SMTP_PASSWORD
+        sync: false
+      - key: SMTP_FROM_EMAIL
+        sync: false
+
   # =========================================================================
-  # Frontend Application (React / Nginx)
+  # 2. Frontend Application (React / Vite Static Site — Faster & Free CDN)
   # =========================================================================
   - type: web
     name: ai-agent-sandbox-frontend
-    runtime: docker
-    dockerfilePath: frontend/Dockerfile
-    dockerContext: frontend
-    plan: free
-    region: frankfurt
+    runtime: static
+    rootDir: frontend
+    buildCommand: npm ci && npm run build
+    staticPublishPath: ./dist
     envVars:
+      - key: NODE_VERSION
+        value: "24"
       - key: VITE_API_URL
         fromService:
           type: web
           name: ai-agent-sandbox-backend
-          property: host
+          property: url
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html

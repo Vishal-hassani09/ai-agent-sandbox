@@ -17,6 +17,9 @@ class Settings(BaseSettings):
     GROQ_API_KEY: str
     DATABASE_URL: str
 
+    SECRET_KEY: Optional[str] = None
+    JWT_SECRET_KEY: Optional[str] = None
+
     # Optional LLM & workspace settings
     MODEL_NAME: str = "qwen/qwen3.8-27b"
     MAX_ITERATIONS: int = 8
