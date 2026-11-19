@@ -7,7 +7,11 @@ from app.config import settings
 pwd_context = CryptContext(schemes=["bcrypt"], deprecated="auto")
 
 # Use a secret key from settings or fallback default for dev
-SECRET_KEY = getattr(settings, "SECRET_KEY", "super-secret-dev-key-change-in-prod-12345")
+SECRET_KEY = (
+       getattr(settings, "SECRET_KEY", None)
+       or getattr(settings, "JWT_SECRET_KEY", None)
+       or "super-secret-dev-key-change-in-prod-12345"
+   )
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60 * 24 * 7  # 7 days
 
