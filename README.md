@@ -10,9 +10,10 @@ An autonomous full-stack coding agent that connects a cloud-hosted **React Web S
 
 ---
 
-## Live Demo & Links
+## Live Demo
 
-- **75-Second Walkthrough Video:** [Watch `demo.mp4`](./demo.mp4)
+https://github.com/Vishal-hassani09/ai-agent-sandbox/releases/tag/v0.1.0
+
 - **Live Web Studio:** [https://ai-agent-sandbox-frontend.onrender.com](https://ai-agent-sandbox-frontend.onrender.com)
 - **Backend API Docs:** [https://ai-agent-sandbox-backend-dgcj.onrender.com/docs](https://ai-agent-sandbox-backend-dgcj.onrender.com/docs)
 - **PyPI Package:** [https://pypi.org/project/ai-coder-sandbox/](https://pypi.org/project/ai-coder-sandbox/)
