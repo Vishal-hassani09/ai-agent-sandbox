@@ -1,24 +1,15 @@
 # AI Coder Sandbox
 
-[![PyPI version](https://img.shields.io/pypi/v/ai-coder-sandbox?color=blue&label=PyPI)](https://pypi.org/project/ai-coder-sandbox/)
-[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
-[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
-[![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)](https://react.dev/)
-[![Live Demo](https://img.shields.io/badge/Web_Studio-Live-success)](https://ai-agent-sandbox-frontend.onrender.com)
-
 An autonomous full-stack coding agent that connects a cloud-hosted **React Web Studio** and **FastAPI** backend with your local filesystem via a zero-config **PyPI CLI device bridge** (`ai-coder-sandbox`).
-
----
 
 ## Live Demo
 
-https://github.com/Vishal-hassani09/ai-agent-sandbox/releases/tag/v0.1.0
+![AI Coder Live Demo](./demo.gif)
 
-- **Live Web Studio:** [https://ai-agent-sandbox-frontend.onrender.com](https://ai-agent-sandbox-frontend.onrender.com)
-- **Backend API Docs:** [https://ai-agent-sandbox-backend-dgcj.onrender.com/docs](https://ai-agent-sandbox-backend-dgcj.onrender.com/docs)
-- **PyPI Package:** [https://pypi.org/project/ai-coder-sandbox/](https://pypi.org/project/ai-coder-sandbox/)
-
----
+- **Watch Full 75s HD Walkthrough:** [Download / Play `demo.mp4` (v0.1.0 Release)](https://github.com/Vishal-hassani09/ai-agent-sandbox/releases/download/v0.1.0/demo.mp4)
+- **Live Web Studio:** <https://ai-agent-sandbox-frontend.onrender.com>
+- **Backend API Docs:** <https://ai-agent-sandbox-backend-dgcj.onrender.com/docs>
+- **PyPI Package:** <https://pypi.org/project/ai-coder-sandbox/>
 
 ## Key Features
 
@@ -27,8 +18,6 @@ https://github.com/Vishal-hassani09/ai-agent-sandbox/releases/tag/v0.1.0
 - **Human-in-the-Loop Tool Permissions:** Explicit approval prompts (`Allow once`, `Always allow during this session`, `Deny`) before executing shell commands or modifying local files.
 - **Multi-Step Autonomous Tool Loop:** Supports file reading, surgical file editing, glob search, directory listing, and sandboxed shell execution powered by Groq LLMs.
 - **Persistent Sessions & Auth:** JWT + email OTP verification (with SVG CAPTCHA rate-limiting), auto-generated session titles, and full conversation persistence in Neon PostgreSQL.
-
----
 
 ## Architecture
 
@@ -51,8 +40,6 @@ flowchart LR
     UI <-->|"Streaming WSS\n(/api/ws/agent)"| API
     CLI -.->|"Opens ?bridge_id=..."| UI
 ```
-
----
 
 ## Quick Start
 
@@ -81,8 +68,6 @@ This prints a paired URL (`https://ai-agent-sandbox-frontend.onrender.com/?bridg
 ai-coder cli
 ```
 
----
-
 ## Tech Stack
 
 | Layer | Technologies |
@@ -92,8 +77,6 @@ ai-coder cli
 | **Frontend** | React, Vite, Custom WebSocket Streaming Client |
 | **CLI & Packaging** | `prompt_toolkit`, `rich`, `httpx`, `websockets`, published on PyPI (`setuptools`) |
 | **Deployment & CI** | Docker, Render Blueprint (`render.yaml`), GitHub Actions (`pytest` + `vitest`) |
-
----
 
 ## Local Development
 
