@@ -1,97 +1,113 @@
-AI Coder Sandbox
+# AI Coder Sandbox
 
-An autonomous full-stack coding agent that connects a cloud-hosted React Web Studio and FastAPI backend with your local filesystem via a zero-config PyPI CLI device bridge (ai-coder-sandbox).
+[![PyPI version](https://img.shields.io/pypi/v/ai-coder-sandbox?color=blue&label=PyPI)](https://pypi.org/project/ai-coder-sandbox/)
+[![Python 3.12](https://img.shields.io/badge/Python-3.12-3776AB?logo=python&logoColor=white)](https://www.python.org/)
+[![FastAPI](https://img.shields.io/badge/FastAPI-009688?logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
+[![React](https://img.shields.io/badge/React-Vite-61DAFB?logo=react&logoColor=black)](https://react.dev/)
+[![Live Demo](https://img.shields.io/badge/Web_Studio-Live-success)](https://ai-agent-sandbox-frontend.onrender.com)
 
-Live Demo
+An autonomous full-stack coding agent that connects a cloud-hosted **React Web Studio** and **FastAPI** backend with your local filesystem via a zero-config **PyPI CLI device bridge** (`ai-coder-sandbox`).
 
-Watch the 75s Walkthrough: Full End-to-End Demo (demo.mp4)
+---
 
-Live Web Studio: https://ai-agent-sandbox-frontend.onrender.com
+## Live Demo & Links
 
-Backend API: https://ai-agent-sandbox-backend-dgcj.onrender.com
+- **75-Second Walkthrough Video:** [Watch `demo.mp4`](./demo.mp4)
+- **Live Web Studio:** [https://ai-agent-sandbox-frontend.onrender.com](https://ai-agent-sandbox-frontend.onrender.com)
+- **Backend API Docs:** [https://ai-agent-sandbox-backend-dgcj.onrender.com/docs](https://ai-agent-sandbox-backend-dgcj.onrender.com/docs)
+- **PyPI Package:** [https://pypi.org/project/ai-coder-sandbox/](https://pypi.org/project/ai-coder-sandbox/)
 
-PyPI Package: ai-coder-sandbox
+---
 
-Key Features
+## Key Features
 
-Local Device Bridge (ai-coder ui): Launches a lightweight local WebSocket bridge in your active directory and pairs with the cloud Web Studio—giving the remote agent direct read, write, and command execution access to your local workspace without manual file uploads.
+- **Local Device Bridge (`ai-coder ui`):** Launches a lightweight outbound WebSocket bridge in your active directory and pairs with the cloud Web Studio—giving the remote agent direct read, write, and command execution access to your local workspace without manual file uploads.
+- **Interactive Terminal TUI (`ai-coder cli`):** Terminal-native coding agent built with `prompt_toolkit` and `rich`, backed by the same cloud authentication and persistent session history.
+- **Human-in-the-Loop Tool Permissions:** Explicit approval prompts (`Allow once`, `Always allow during this session`, `Deny`) before executing shell commands or modifying local files.
+- **Multi-Step Autonomous Tool Loop:** Supports file reading, surgical file editing, glob search, directory listing, and sandboxed shell execution powered by Groq LLMs.
+- **Persistent Sessions & Auth:** JWT + email OTP verification (with SVG CAPTCHA rate-limiting), auto-generated session titles, and full conversation persistence in Neon PostgreSQL.
 
-Interactive Terminal TUI (ai-coder cli): Terminal-native coding agent built with prompt_toolkit and rich, backed by the same cloud authentication and persistent session history.
+---
 
-Human-in-the-Loop Tool Permissions: Explicit approval prompts (Allow once, Always allow during this session, Deny) before executing shell commands or modifying local files.
+## Architecture
 
-Multi-Step Autonomous Tool Loop: Supports file reading, targeted editing, file search, directory listing, and sandboxed shell execution powered by Groq LLMs.
+```mermaid
+flowchart LR
+    subgraph Local["Local Developer Machine"]
+        CLI["$ ai-coder ui\n(PyPI CLI Device Bridge)"]
+        FS["Local Filesystem & Shell"]
+        CLI <--> FS
+    end
 
-Persistent Sessions & Auth: JWT + email OTP verification (with SVG CAPTCHA rate-limiting), auto-generated session titles, and full conversation persistence in Neon PostgreSQL.
+    subgraph Cloud["Render Cloud & Neon DB"]
+        API["FastAPI Backend\n(JWT Auth, Groq Agent, WS Router)"]
+        UI["React Web Studio\n(Streaming UI & Approval Modals)"]
+        DB[("Neon PostgreSQL\n(Users, Sessions, Messages)")]
+        API <--> DB
+    end
 
-Architecture
+    CLI <-->|"Outbound WSS Tunnel\n(/api/ws/daemon)"| API
+    UI <-->|"Streaming WSS\n(/api/ws/agent)"| API
+    CLI -.->|"Opens ?bridge_id=..."| UI
+```
 
-+-----------------------------------+        HTTPS / WSS        +-----------------------------------+
-|        Local Developer Machine    | <-----------------------> |     Render Cloud (FastAPI API)    |
-|                                   |                           |                                   |
-|  $ ai-coder ui                    |                           |  - JWT Auth & OTP Verification    |
-|  - Local WebSocket Device Bridge  |                           |  - Agent Orchestrator (Groq SDK)  |
-|  - Local Tool Executor (fs/shell) |                           |  - WebSocket Bridge Router        |
-+-----------------------------------+                           +-----------------+-----------------+
-                  ^                                                               |
-                  | Opens Browser (?bridge_id=...)                                | Async SQLAlchemy
-                  v                                                               v
-+-----------------------------------+                           +-----------------------------------+
-|     Render Cloud (React Studio)   |                           |       Neon PostgreSQL (Cloud)     |
-|                                   |                           |                                   |
-|  - Real-time Streaming UI         |                           |  - Users, Sessions & Messages     |
-|  - Interactive Approval Modals    |                           |  - Persistent Workspace History   |
-+-----------------------------------+                           +-----------------------------------+
+---
 
+## Quick Start
 
-Quick Start
+### 1. Install the CLI Globally from PyPI
 
-1. Install the CLI Globally from PyPI
-
+```bash
 pip install ai-coder-sandbox
-# or with pipx:
-pipx install ai-coder-sandbox
+```
 
+*(Or install in an isolated environment using `pipx install ai-coder-sandbox`.)*
 
-2. Launch Web Studio Mode (Recommended)
+### 2. Launch Web Studio Mode (Recommended)
 
 Navigate to any local project folder and start the device bridge:
 
+```bash
 cd your-project-folder
 ai-coder ui
+```
 
+This prints a paired URL (`https://ai-agent-sandbox-frontend.onrender.com/?bridge_id=...`), connects your local directory over WebSockets once you sign in, and lets you collaborate with the agent directly on your local files.
 
-This prints a paired URL (https://ai-agent-sandbox-frontend.onrender.com/?bridge_id=...), connects your local directory over WebSockets once you sign in, and lets you collaborate with the agent directly on your local files.
+### 3. Launch Pure Terminal CLI Mode
 
-3. Launch Pure Terminal CLI Mode
-
+```bash
 ai-coder cli
+```
 
+---
 
-Tech Stack
+## Tech Stack
 
-Backend: Python 3.12, FastAPI, Uvicorn, WebSockets, SQLAlchemy (Async), Pydantic Settings, Groq SDK
+| Layer | Technologies |
+| :--- | :--- |
+| **Backend** | Python 3.12, FastAPI, Uvicorn, WebSockets, SQLAlchemy (Async), Pydantic Settings, Groq SDK |
+| **Database** | PostgreSQL (Neon Serverless), SQLite (`aiosqlite` for CI test suite) |
+| **Frontend** | React, Vite, Custom WebSocket Streaming Client |
+| **CLI & Packaging** | `prompt_toolkit`, `rich`, `httpx`, `websockets`, published on PyPI (`setuptools`) |
+| **Deployment & CI** | Docker, Render Blueprint (`render.yaml`), GitHub Actions (`pytest` + `vitest`) |
 
-Database: PostgreSQL (Neon Serverless) / SQLite (Test Suite)
+---
 
-Frontend: React, Vite, Custom Streaming Client
+## Local Development
 
-CLI & Packaging: prompt_toolkit, rich, httpx, websockets, published on PyPI (setuptools)
-
-Deployment & CI: Docker, Render Blueprint (render.yaml), GitHub Actions (pytest + vitest)
-
-Local Development
-
+```bash
 git clone https://github.com/Vishal-hassani09/ai-agent-sandbox.git
 cd ai-agent-sandbox
 
-# Backend
+# 1. Start Backend
 cd backend
 python -m venv .venv && source .venv/bin/activate
 pip install -e .
 uvicorn app.api.main:app --reload
 
-# Frontend (in a second terminal)
+# 2. Start Frontend (in a second terminal)
 cd ../frontend
 npm install
 npm run dev
+```
